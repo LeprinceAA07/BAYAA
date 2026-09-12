@@ -7,13 +7,13 @@ import {api,saveApiSession,clearApiSession} from './api.js';
 const demo=[
 {id:'demo-1',title:'هاتف ذكي حديث',price:8900,category:'إلكترونيات',description:'هاتف ذكي عملي للاستخدام اليومي.',icon:Smartphone,imageUrl:'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80'},
 {id:'demo-2',title:'قميص Polo أنيق',price:650,category:'ملابس',description:'قميص Polo أنيق ومناسب للاستعمال اليومي.',icon:Shirt,imageUrl:'https://images.unsplash.com/photo-1627225924765-552d49cf47ad?auto=format&fit=crop&w=900&q=80'},
-{id:'demo-3',title:'طقم عطور فاخر',price:3200,category:'عطور',description:'مجموعة عطور مميزة لمحبي الروائح الفاخرة.',icon:Sparkles,imageUrl:'https://images.unsplash.com/photo-1541643600914-78b084683601?auto=format&fit=crop&w=900&q=80'},
+{id:'demo-3',title:'طقم مستحضرات تجميل فاخر',price:3200,category:'مستحضرات تجميل',description:'مجموعة مستحضرات تجميل مميزة.',icon:Sparkles,imageUrl:'https://images.unsplash.com/photo-1596462502278-27bfdc403348?auto=format&fit=crop&w=900&q=80'},
 {id:'demo-4',title:'أريكة منزلية عصرية',price:12500,category:'منازل',description:'أريكة عصرية للمنزل.',icon:Home,imageUrl:'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=900&q=80'},
 {id:'demo-5',title:'إكسسوارات سيارة',price:1400,category:'سيارات',description:'إكسسوارات مفيدة للسيارة.',icon:Car,imageUrl:'https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=900&q=80'},
 {id:'demo-6',title:'منتج إلكتروني مميز',price:4200,category:'إلكترونيات',description:'منتج إلكتروني عملي.',icon:Smartphone,imageUrl:'https://images.unsplash.com/photo-1496181133206-80ce9b88a853?auto=format&fit=crop&w=900&q=80'}
 ];
-const icons={إلكترونيات:Smartphone,ملابس:Shirt,منازل:Home,سيارات:Car,عطور:Sparkles};
-const cats=[['الكل',Store],['إلكترونيات',Smartphone],['ملابس',Shirt],['منازل',Home],['سيارات',Car],['عطور',Sparkles]];
+const icons={إلكترونيات:Smartphone,ملابس:Shirt,منازل:Home,سيارات:Car,'مستحضرات تجميل':Sparkles};
+const cats=[['الكل',Store],['إلكترونيات',Smartphone],['ملابس',Shirt],['منازل',Home],['سيارات',Car],['مستحضرات تجميل',Sparkles]];
 const paymentMethods=[
 {id:'cod',title:'الدفع عند الاستلام',subtitle:'ادفع عند وصول الطلب',icon:Wallet},
 {id:'bankily',title:'Bankily',subtitle:'الدفع عبر Bankily',icon:CreditCard},
