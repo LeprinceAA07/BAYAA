@@ -147,18 +147,9 @@ const pricingPatch = `app.get('/api/pricing-context', (req, res) => {
     countryCode,
     email: null,
     priceIds: {
-      Starter: {
-        month: process.env.BAYAA_PADDLE_STARTER_MONTH_PRICE_ID || '',
-        year: process.env.BAYAA_PADDLE_STARTER_YEAR_PRICE_ID || '',
-      },
-      Pro: {
-        month: process.env.BAYAA_PADDLE_PRO_MONTH_PRICE_ID || '',
-        year: process.env.BAYAA_PADDLE_PRO_YEAR_PRICE_ID || '',
-      },
-      Advanced: {
-        month: process.env.BAYAA_PADDLE_ADVANCED_MONTH_PRICE_ID || '',
-        year: process.env.BAYAA_PADDLE_ADVANCED_YEAR_PRICE_ID || '',
-      },
+      Starter: { month: process.env.BAYAA_PADDLE_STARTER_MONTH_PRICE_ID || '', year: process.env.BAYAA_PADDLE_STARTER_YEAR_PRICE_ID || '' },
+      Pro: { month: process.env.BAYAA_PADDLE_PRO_MONTH_PRICE_ID || '', year: process.env.BAYAA_PADDLE_PRO_YEAR_PRICE_ID || '' },
+      Advanced: { month: process.env.BAYAA_PADDLE_ADVANCED_MONTH_PRICE_ID || '', year: process.env.BAYAA_PADDLE_ADVANCED_YEAR_PRICE_ID || '' },
     },
   });
 });
@@ -166,13 +157,14 @@ const pricingPatch = `app.get('/api/pricing-context', (req, res) => {
 `;
 
 const sellerBillingPatch = await fs.readFile(new URL('./seller-billing.patch.mjs', import.meta.url), 'utf8');
+const paddleFulfillmentPatch = await fs.readFile(new URL('./paddle-fulfillment.patch.mjs', import.meta.url), 'utf8');
 const staticMarker = 'const __filename = fileURLToPath(import.meta.url);';
 
 const patched = source
   .replace(productMarker, (source.includes("app.patch('/api/products/:id'") ? '' : productPatch) + productMarker)
   .replace(contactMigration, contactPatch + contactMigration)
   .replace(productContactQuery, productContactQueryPatched)
-  .replace(webhookInsertMarker, webhookPatch + webhookInsertMarker)
+  .replace(webhookInsertMarker, webhookPatch + '\n' + paddleFulfillmentPatch + '\n' + webhookInsertMarker)
   .replace(orderPaymentMarker, (source.includes('payment_transaction_id') ? '' : orderPaymentPatch) + orderPaymentMarker)
   .replace(checkoutMarker, (source.includes("app.post('/api/payments/checkout'") ? '' : checkoutPatch) + checkoutMarker)
   .replace(staticMarker, pricingPatch + sellerBillingPatch + '\n' + staticMarker);
