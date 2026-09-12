@@ -1,8 +1,8 @@
 const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 
 const request = async (path, options = {}) => {
+  const headers = { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(options.headers || {}) };
   const token = localStorage.getItem('bayaa-token');
-  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
   if (token) headers.Authorization = `Bearer ${token}`;
   const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
   const data = await response.json().catch(() => ({}));
@@ -28,4 +28,7 @@ export const saveApiSession = ({ user, token }) => {
   localStorage.setItem('bayaa-session', JSON.stringify(user));
 };
 
-export const clearApiSession = () => localStorage.removeItem('bayaa-token');
+export const clearApiSession = () => {
+  localStorage.removeItem('bayaa-token');
+  localStorage.removeItem('bayaa-session');
+};
