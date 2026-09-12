@@ -1,47 +1,14 @@
 (() => {
-  const originalFetch = window.fetch.bind(window);
-  if (window.__bayaaPaymentEnhanced) return;
-  window.__bayaaPaymentEnhanced = true;
-
-  window.fetch = async (input, init = {}) => {
-    const response = await originalFetch(input, init);
-
-    try {
-      const url = typeof input === 'string' ? input : input?.url || '';
-      const method = String(init?.method || (typeof input !== 'string' ? input?.method : 'GET')).toUpperCase();
-      const isOrderCreate = method === 'POST' && new URL(url, window.location.origin).pathname === '/api/orders';
-      if (!isOrderCreate || !response.ok) return response;
-
-      const rawBody = init?.body;
-      const orderPayload = typeof rawBody === 'string' ? JSON.parse(rawBody) : null;
-      if (!orderPayload || orderPayload.paymentMethod === 'cod') return response;
-
-      const orderResponse = await response.clone().json();
-      const orderId = orderResponse?.order?.id;
-      if (!orderId) return response;
-
-      const transactionId = `order_${orderId}`;
-      const token = localStorage.getItem('bayaa-token');
-      const checkoutResponse = await originalFetch('/api/payments/checkout', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ amount: Number(orderPayload.total), transactionId }),
-      });
-
-      const checkout = await checkoutResponse.json().catch(() => ({}));
-      if (!checkoutResponse.ok || !checkout.checkoutUrl) {
-        console.error('BAYAA payment checkout error:', checkout?.error || 'No checkout URL');
-        return response;
-      }
-
-      window.location.assign(checkout.checkoutUrl);
-    } catch (error) {
-      console.error('BAYAA payment enhancement failed:', error);
-    }
-
-    return response;
+  const disableLegacyPaymentUI = () => {
+    document.querySelectorAll('.payment-option').forEach((node) => node.remove());
+    document.querySelectorAll('.payment-options').forEach((container) => {
+      container.dataset.bayaaDirectContact = 'true';
+      container.innerHTML = '<div class="payment-note">لا يوجد دفع من المشتري. بعد إرسال الطلب، سيتواصل المشتري مباشرة مع البائع.</div>';
+    });
+    document.querySelectorAll('.payment-note').forEach((node) => {
+      node.textContent = 'لا يوجد دفع من المشتري. بعد إرسال الطلب، سيتواصل المشتري مباشرة مع البائع.';
+    });
   };
+  window.addEventListener('DOMContentLoaded', disableLegacyPaymentUI);
+  if (document.body) new MutationObserver(disableLegacyPaymentUI).observe(document.body, { childList: true, subtree: true });
 })();
