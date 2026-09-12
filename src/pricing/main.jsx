@@ -4,27 +4,12 @@ import { initializePaddle } from '@paddle/paddle-js';
 import './styles.css';
 
 const tiers = [
-  {
-    name: 'Starter',
-    description: 'للبائعين الذين يبدأون البيع مع BAYAA.',
-    features: ['إضافة المنتجات', 'لوحة بائع أساسية', 'تواصل مباشر مع المشترين'],
-    priceId: { month: import.meta.env.BAYAA_PADDLE_STARTER_MONTH_PRICE_ID || '', year: import.meta.env.BAYAA_PADDLE_STARTER_YEAR_PRICE_ID || '' },
-  },
-  {
-    name: 'Pro',
-    description: 'للبائعين النشطين الذين يريدون تكلفة عمولة أقل.',
-    features: ['كل مزايا Starter', 'عمولة مخفضة', 'أولوية في أدوات البائع'],
-    priceId: { month: import.meta.env.BAYAA_PADDLE_PRO_MONTH_PRICE_ID || '', year: import.meta.env.BAYAA_PADDLE_PRO_YEAR_PRICE_ID || '' },
-  },
-  {
-    name: 'Advanced',
-    description: 'للبائعين ذوي حجم المبيعات المرتفع.',
-    features: ['كل مزايا Pro', 'أقل عمولة', 'أولوية للدعم'],
-    priceId: { month: import.meta.env.BAYAA_PADDLE_ADVANCED_MONTH_PRICE_ID || '', year: import.meta.env.BAYAA_PADDLE_ADVANCED_YEAR_PRICE_ID || '' },
-  },
+  { name: 'Starter', description: 'للبائعين الذين يبدأون البيع مع BAYAA.', features: ['إضافة المنتجات', 'لوحة بائع أساسية', 'تواصل مباشر مع المشترين'], priceId: { month: import.meta.env.BAYAA_PADDLE_STARTER_MONTH_PRICE_ID || '', year: import.meta.env.BAYAA_PADDLE_STARTER_YEAR_PRICE_ID || '' } },
+  { name: 'Pro', description: 'للبائعين النشطين الذين يريدون تكلفة عمولة أقل.', features: ['كل مزايا Starter', 'عمولة مخفضة', 'أولوية في أدوات البائع'], priceId: { month: import.meta.env.BAYAA_PADDLE_PRO_MONTH_PRICE_ID || '', year: import.meta.env.BAYAA_PADDLE_PRO_YEAR_PRICE_ID || '' } },
+  { name: 'Advanced', description: 'للبائعين ذوي حجم المبيعات المرتفع.', features: ['كل مزايا Pro', 'أقل عمولة', 'أولوية للدعم'], priceId: { month: import.meta.env.BAYAA_PADDLE_ADVANCED_MONTH_PRICE_ID || '', year: import.meta.env.BAYAA_PADDLE_ADVANCED_YEAR_PRICE_ID || '' } },
 ];
 
-const escapeHtml = (value) => String(value).replace(/[&<>\'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]);
+const escapeHtml = (value) => String(value).replace(/[&<>\'\"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]);
 
 function PricingPage({ countryCode, signedInEmail }) {
   const [billing, setBilling] = useState('month');
@@ -107,16 +92,16 @@ function PricingPage({ countryCode, signedInEmail }) {
         {error && <div className="error-banner">{escapeHtml(error)}</div>}
         <section className="pricing-grid">
           {selected.map((tier, index) => {
-            const price = prices[tier.selectedPriceId];
+            const formattedTotals = prices[tier.selectedPriceId];
             return (
               <article className={`price-card ${index === 1 ? 'featured' : ''}`} key={tier.name}>
                 {index === 1 && <span className="featured-badge">الأكثر طلبًا</span>}
                 <h2>{tier.name}</h2>
                 <p className="description">{tier.description}</p>
-                <div className="price-value">{loading ? '...' : price?.total || 'غير متاح'}</div>
+                <div className="price-value">{loading ? '...' : formattedTotals || 'غير متاح'}</div>
                 <div className="billing-label">{billing === 'month' ? 'شهريًا' : 'سنويًا'}</div>
                 <ul>{tier.features.map((feature) => <li key={feature}>✓ {feature}</li>)}</ul>
-                <button className="subscribe" disabled={!paddle || !price || loading} onClick={() => subscribe(tier)}>Subscribe</button>
+                <button className="subscribe" disabled={!paddle || !formattedTotals || loading} onClick={() => subscribe(tier)}>Subscribe</button>
               </article>
             );
           })}
