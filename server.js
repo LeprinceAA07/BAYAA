@@ -195,6 +195,19 @@ app.get('/api/seller/orders', auth, sellerOnly, async (req, res) => {
   } catch { res.status(500).json({ error: 'Could not load seller orders.' }); }
 });
 
+app.patch('/api/seller/orders/:id/status', auth, sellerOnly, async (req, res) => {
+  if (!requireDb(res)) return;
+  const allowedStatuses = new Set(['جديد','قيد التجهيز','تم الشحن','تم التسليم','ملغى']);
+  const status = String(req.body?.status || '').trim();
+  if (!allowedStatuses.has(status)) return res.status(400).json({ error: 'Invalid order status.' });
+  try {
+    const ownership = await pool.query(`SELECT o.id FROM orders o WHERE o.id=$1 AND EXISTS (SELECT 1 FROM jsonb_array_elements(o.items) item WHERE item->>'sellerId' = $2)`, [req.params.id, String(req.user.id)]);
+    if (!ownership.rowCount) return res.status(404).json({ error: 'Order not found.' });
+    const result = await pool.query('UPDATE orders SET status=$1 WHERE id=$2 RETURNING id,status,payment_method,total,created_at', [status, req.params.id]);
+    res.json({ order: result.rows[0] });
+  } catch { res.status(500).json({ error: 'Could not update order status.' }); }
+});
+
 // Moosyl payment initiation. Secret key must stay on the server; never expose it to the browser.
 app.post('/api/payments/create', auth, async (req, res) => {
   if (!process.env.MOOSYL_SECRET_KEY) return res.status(503).json({ error: 'Payment provider is not configured yet.' });
