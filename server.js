@@ -35,7 +35,6 @@ const webhookSignatureIsValid = (payload, signature, secret) => {
   return crypto.timingSafeEqual(Buffer.from(receivedHex, 'hex'), Buffer.from(expected, 'hex'));
 };
 
-// Moosyl webhook must receive the raw request body so HMAC-SHA256 verification is correct.
 app.post('/api/webhooks/moosyl', express.raw({ type: 'application/json', limit: '1mb' }), async (req, res) => {
   const secret = process.env.MOOSYL_WEBHOOK_SECRET;
   if (!secret) return res.status(503).json({ error: 'Webhook secret is not configured.' });
@@ -43,35 +42,23 @@ app.post('/api/webhooks/moosyl', express.raw({ type: 'application/json', limit: 
     return res.status(401).json({ error: 'Invalid webhook signature.' });
   }
   if (!requireDb(res)) return;
-
   let envelope;
   try { envelope = JSON.parse(req.body.toString('utf8')); }
   catch { return res.status(400).json({ error: 'Invalid JSON payload.' }); }
-
   const event = String(envelope?.event || req.headers['x-webhook-event'] || '').trim();
   const allowedEvents = new Set(['payment-request-created', 'payment-request-updated', 'payment-created', 'payment-updated']);
   if (!allowedEvents.has(event)) return res.status(400).json({ error: 'Unsupported webhook event.' });
-  if (req.headers['x-webhook-event'] && String(req.headers['x-webhook-event']) !== event) {
-    return res.status(400).json({ error: 'Webhook event mismatch.' });
-  }
-
+  if (req.headers['x-webhook-event'] && String(req.headers['x-webhook-event']) !== event) return res.status(400).json({ error: 'Webhook event mismatch.' });
   const data = envelope?.data || {};
   const transactionId = String(data.transactionId || data.request?.transactionId || '').trim();
   if (!transactionId) return res.status(200).json({ received: true, ignored: true });
-
   const status = String(data.status || data.request?.status || '').trim().toLowerCase();
   const referenceId = String(data.referenceId || '').trim() || null;
   const completed = new Set(['completed', 'paid', 'success', 'succeeded']).has(status);
   const failed = new Set(['failed', 'cancelled', 'canceled', 'rejected', 'declined', 'expired']).has(status);
-
   try {
     const result = await pool.query(
-      `UPDATE orders
-       SET payment_status=$1,
-           payment_reference=COALESCE($2,payment_reference),
-           status=CASE WHEN $3 THEN 'جديد' ELSE status END
-       WHERE transaction_id=$4
-       RETURNING id,status,payment_status,payment_reference`,
+      `UPDATE orders SET payment_status=$1,payment_reference=COALESCE($2,payment_reference),status=CASE WHEN $3 THEN 'جديد' ELSE status END WHERE transaction_id=$4 RETURNING id,status,payment_status,payment_reference`,
       [completed ? 'completed' : failed ? 'failed' : (status || 'pending'), referenceId, completed, transactionId]
     );
     return res.status(200).json({ received: true, matched: Boolean(result.rowCount) });
@@ -85,16 +72,18 @@ app.use(express.json({ limit: '1mb' }));
 const auth = async (req, res, next) => {
   const token = req.headers.authorization?.replace('Bearer ', '');
   if (!token) return res.status(401).json({ error: 'Authentication required.' });
-  try {
-    req.user = jwt.verify(token, JWT_SECRET);
-    next();
-  } catch {
-    return res.status(401).json({ error: 'Invalid or expired token.' });
-  }
+  try { req.user = jwt.verify(token, JWT_SECRET); next(); }
+  catch { return res.status(401).json({ error: 'Invalid or expired token.' }); }
 };
 
 const sellerOnly = (req, res, next) => {
   if (req.user.role !== 'seller') return res.status(403).json({ error: 'Seller account required.' });
+  next();
+};
+
+const adminOnly = (req, res, next) => {
+  const configured = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+  if (!configured || String(req.user.email || '').toLowerCase() !== configured) return res.status(403).json({ error: 'Admin access required.' });
   next();
 };
 
@@ -129,38 +118,29 @@ const initDb = async () => {
       address TEXT NOT NULL,
       total NUMERIC(12,2) NOT NULL,
       status TEXT NOT NULL DEFAULT 'جديد',
-      payment_method TEXT NOT NULL DEFAULT 'cod',
+      payment_method TEXT NOT NULL DEFAULT 'card',
       transaction_id TEXT UNIQUE,
-      payment_status TEXT NOT NULL DEFAULT 'not_required',
+      payment_status TEXT NOT NULL DEFAULT 'pending',
       payment_reference TEXT,
       items JSONB NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     DO $$
     BEGIN
-      IF NOT EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_name='orders' AND column_name='payment_method'
-      ) THEN
-        ALTER TABLE orders ADD COLUMN payment_method TEXT NOT NULL DEFAULT 'cod';
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='orders' AND column_name='payment_method') THEN
+        ALTER TABLE orders ADD COLUMN payment_method TEXT NOT NULL DEFAULT 'card';
       END IF;
-      IF NOT EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_name='orders' AND column_name='transaction_id'
-      ) THEN
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='orders' AND column_name='transaction_id') THEN
         ALTER TABLE orders ADD COLUMN transaction_id TEXT UNIQUE;
       END IF;
-      IF NOT EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_name='orders' AND column_name='payment_status'
-      ) THEN
-        ALTER TABLE orders ADD COLUMN payment_status TEXT NOT NULL DEFAULT 'not_required';
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='orders' AND column_name='payment_status') THEN
+        ALTER TABLE orders ADD COLUMN payment_status TEXT NOT NULL DEFAULT 'pending';
       END IF;
-      IF NOT EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_name='orders' AND column_name='payment_reference'
-      ) THEN
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='orders' AND column_name='payment_reference') THEN
         ALTER TABLE orders ADD COLUMN payment_reference TEXT;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='contact_phone') THEN
+        ALTER TABLE users ADD COLUMN contact_phone TEXT;
       END IF;
     END $$;
   `);
@@ -178,7 +158,7 @@ app.post('/api/auth/register', async (req, res) => {
   if (!name?.trim() || !email?.trim() || !password || !['buyer','seller'].includes(role)) return res.status(400).json({ error: 'Invalid registration data.' });
   try {
     const hash = await bcrypt.hash(password, 12);
-    const result = await pool.query('INSERT INTO users (name,email,password_hash,role) VALUES ($1,$2,$3,$4) RETURNING id,name,email,role', [name.trim(), email.trim().toLowerCase(), hash, role]);
+    const result = await pool.query('INSERT INTO users (name,email,password_hash,role) VALUES ($1,$2,$3,$4) RETURNING id,name,email,role,contact_phone', [name.trim(), email.trim().toLowerCase(), hash, role]);
     const user = result.rows[0];
     const token = jwt.sign({ id: String(user.id), name: user.name, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '30d' });
     res.status(201).json({ user, token });
@@ -192,26 +172,59 @@ app.post('/api/auth/login', async (req, res) => {
   if (!requireDb(res)) return;
   const { email, password } = req.body || {};
   try {
-    const result = await pool.query('SELECT id,name,email,password_hash,role FROM users WHERE email=$1', [String(email || '').trim().toLowerCase()]);
+    const result = await pool.query('SELECT id,name,email,password_hash,role,contact_phone FROM users WHERE email=$1', [String(email || '').trim().toLowerCase()]);
     const user = result.rows[0];
     if (!user || !(await bcrypt.compare(password || '', user.password_hash))) return res.status(401).json({ error: 'Invalid email or password.' });
-    const safeUser = { id: String(user.id), name: user.name, email: user.email, role: user.role };
+    const safeUser = { id: String(user.id), name: user.name, email: user.email, role: user.role, contact_phone: user.contact_phone || null };
     const token = jwt.sign(safeUser, JWT_SECRET, { expiresIn: '30d' });
     res.json({ user: safeUser, token });
   } catch { res.status(500).json({ error: 'Login failed.' }); }
 });
 
-app.get('/api/me', auth, (req, res) => res.json({ user: req.user }));
+app.get('/api/me', auth, async (req, res) => {
+  if (!pool) return res.json({ user: req.user });
+  try {
+    const result = await pool.query('SELECT id,name,email,role,contact_phone FROM users WHERE id=$1', [req.user.id]);
+    const user = result.rows[0] ? { id: String(result.rows[0].id), name: result.rows[0].name, email: result.rows[0].email, role: result.rows[0].role, contact_phone: result.rows[0].contact_phone || null } : req.user;
+    res.json({ user });
+  } catch { res.json({ user: req.user }); }
+});
+
+app.patch('/api/me/contact', auth, async (req, res) => {
+  if (!requireDb(res)) return;
+  const contactPhone = String(req.body?.contactPhone || '').trim();
+  const digits = contactPhone.replace(/\D/g, '');
+  if (!/^\d{8,15}$/.test(digits)) return res.status(400).json({ error: 'Enter a valid contact phone number.' });
+  try {
+    const result = await pool.query('UPDATE users SET contact_phone=$1 WHERE id=$2 RETURNING id,name,email,role,contact_phone', [digits, req.user.id]);
+    res.json({ user: result.rows[0] });
+  } catch { res.status(500).json({ error: 'Could not save contact phone.' }); }
+});
+
+app.get('/api/admin/stats', auth, adminOnly, async (_req, res) => {
+  if (!requireDb(res)) return;
+  try {
+    const [users, sellers, orders, paid] = await Promise.all([
+      pool.query("SELECT COUNT(*)::int AS count FROM users"),
+      pool.query("SELECT COUNT(*)::int AS count FROM users WHERE role='seller'"),
+      pool.query("SELECT COUNT(*)::int AS count, COALESCE(SUM(total),0)::numeric AS gross FROM orders"),
+      pool.query("SELECT COUNT(*)::int AS count, COALESCE(SUM(total),0)::numeric AS gross FROM orders WHERE payment_status IN ('completed','paid','success','succeeded')")
+    ]);
+    const paidGross = Number(paid.rows[0].gross || 0);
+    const commissionRate = Number(process.env.DEFAULT_COMMISSION_RATE || 0.05);
+    res.json({ currency: 'MRU', users: users.rows[0].count, sellers: sellers.rows[0].count, orders: orders.rows[0].count, grossSales: Number(orders.rows[0].gross || 0), paidOrders: paid.rows[0].count, paidSales: paidGross, estimatedCommission: paidGross * commissionRate, commissionRate });
+  } catch { res.status(500).json({ error: 'Could not load admin statistics.' }); }
+});
 
 app.get('/api/products', async (req, res) => {
   if (!pool) return res.json({ products: [] });
   const { category, q } = req.query;
   const values = [];
-  const where = ['active = TRUE'];
-  if (category && category !== 'الكل') { values.push(category); where.push(`category = $${values.length}`); }
-  if (q) { values.push(`%${String(q).trim()}%`); where.push(`title ILIKE $${values.length}`); }
+  const where = ['p.active = TRUE'];
+  if (category && category !== 'الكل') { values.push(category); where.push(`p.category = $${values.length}`); }
+  if (q) { values.push(`%${String(q).trim()}%`); where.push(`p.title ILIKE $${values.length}`); }
   try {
-    const result = await pool.query(`SELECT id,seller_id,title,description,category,price,image_url,created_at FROM products WHERE ${where.join(' AND ')} ORDER BY created_at DESC`, values);
+    const result = await pool.query(`SELECT p.id,p.seller_id,p.title,p.description,p.category,p.price,p.image_url,p.created_at,u.contact_phone AS seller_phone FROM products p LEFT JOIN users u ON u.id=p.seller_id WHERE ${where.join(' AND ')} ORDER BY p.created_at DESC`, values);
     res.json({ products: result.rows });
   } catch { res.status(500).json({ error: 'Could not load products.' }); }
 });
@@ -266,15 +279,13 @@ app.delete('/api/products/:id', auth, sellerOnly, async (req, res) => {
 
 app.post('/api/orders', auth, async (req, res) => {
   if (!requireDb(res)) return;
-  const { customerName, phone, city, address, items, total, paymentMethod = 'cod' } = req.body || {};
-  const allowedPaymentMethods = new Set(['cod','bankily','sedad','masrivi']);
-  if (!customerName?.trim() || !phone?.trim() || !city?.trim() || !address?.trim() || !Array.isArray(items) || !items.length || !Number.isFinite(Number(total)) || !allowedPaymentMethods.has(paymentMethod)) return res.status(400).json({ error: 'Invalid order data.' });
-  const transactionId = paymentMethod === 'cod' ? null : `BAYAA-${req.user.id}-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
-  const paymentStatus = paymentMethod === 'cod' ? 'not_required' : 'pending';
+  const { customerName, phone, city, address, items, total, paymentMethod = 'card' } = req.body || {};
+  if (!customerName?.trim() || !phone?.trim() || !city?.trim() || !address?.trim() || !Array.isArray(items) || !items.length || !Number.isFinite(Number(total)) || paymentMethod !== 'card') return res.status(400).json({ error: 'Only Visa/Mastercard card payments are supported.' });
+  const transactionId = `BAYAA-${req.user.id}-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
   try {
     const result = await pool.query(
       'INSERT INTO orders (buyer_id,customer_name,phone,city,address,total,status,payment_method,transaction_id,payment_status,items) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id,status,payment_method,transaction_id,payment_status,total,created_at',
-      [req.user.id, customerName.trim(), phone.trim(), city.trim(), address.trim(), Number(total), paymentMethod === 'cod' ? 'جديد' : 'بانتظار الدفع', paymentMethod, transactionId, paymentStatus, JSON.stringify(items)]
+      [req.user.id, customerName.trim(), phone.trim(), city.trim(), address.trim(), Number(total), 'بانتظار الدفع', 'card', transactionId, 'pending', JSON.stringify(items)]
     );
     res.status(201).json({ order: result.rows[0] });
   } catch { res.status(500).json({ error: 'Could not create order.' }); }
@@ -309,7 +320,6 @@ app.patch('/api/seller/orders/:id/status', auth, sellerOnly, async (req, res) =>
   } catch { res.status(500).json({ error: 'Could not update order status.' }); }
 });
 
-// Moosyl payment initiation. Secret key must stay on the server; never expose it to the browser.
 app.post('/api/payments/create', auth, async (req, res) => {
   if (!process.env.MOOSYL_SECRET_KEY) return res.status(503).json({ error: 'Payment provider is not configured yet.' });
   const amount = Number(req.body?.amount);
@@ -324,6 +334,30 @@ app.post('/api/payments/create', auth, async (req, res) => {
     const data = await response.json().catch(() => ({}));
     if (!response.ok) return res.status(response.status).json({ error: data?.error || 'Payment request failed.' });
     res.status(201).json({ transactionId: data.transactionId || transactionId });
+  } catch { res.status(502).json({ error: 'Payment provider is unavailable.' }); }
+});
+
+app.post('/api/payments/checkout', auth, async (req, res) => {
+  if (!process.env.MOOSYL_SECRET_KEY) return res.status(503).json({ error: 'Payment provider is not configured yet.' });
+  const amount = Number(req.body?.amount);
+  const transactionId = String(req.body?.transactionId || '').trim();
+  if (!Number.isFinite(amount) || amount <= 0 || !transactionId) return res.status(400).json({ error: 'Invalid payment data.' });
+  try {
+    const requestResponse = await fetch('https://api.moosyl.com/payment-request', { method: 'POST', headers: { Authorization: process.env.MOOSYL_SECRET_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ amount, transactionId }) });
+    let requestData = await requestResponse.json().catch(() => ({}));
+    if (!requestResponse.ok) {
+      const lookup = await fetch(`https://api.moosyl.com/payment-request/transaction/${encodeURIComponent(transactionId)}`, { headers: { Authorization: process.env.MOOSYL_SECRET_KEY } });
+      if (lookup.ok) requestData = await lookup.json().catch(() => ({}));
+      else return res.status(requestResponse.status).json({ error: requestData?.error || 'Payment request failed.' });
+    }
+    const paymentRequestId = requestData?.data?.id || requestData?.id || requestData?.paymentRequestId;
+    if (!paymentRequestId) return res.status(502).json({ error: 'Moosyl did not return a payment request ID.' });
+    const checkoutResponse = await fetch('https://api.moosyl.com/checkout-session', { method: 'POST', headers: { Authorization: process.env.MOOSYL_SECRET_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ paymentRequestId }) });
+    const checkoutData = await checkoutResponse.json().catch(() => ({}));
+    if (!checkoutResponse.ok) return res.status(checkoutResponse.status).json({ error: checkoutData?.error || 'Checkout session creation failed.' });
+    const checkoutUrl = checkoutData?.checkoutUrl || checkoutData?.data?.checkoutUrl || checkoutData?.url;
+    if (!checkoutUrl) return res.status(502).json({ error: 'Moosyl did not return a checkout URL.' });
+    res.status(201).json({ transactionId, paymentRequestId, checkoutUrl });
   } catch { res.status(502).json({ error: 'Payment provider is unavailable.' }); }
 });
 
