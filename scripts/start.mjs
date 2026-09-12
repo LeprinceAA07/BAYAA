@@ -70,7 +70,12 @@ const webhookPatch = `app.post('/api/webhooks/moosyl', express.raw({ type: 'appl
     await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_transaction_id TEXT');
     await pool.query("ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_status TEXT NOT NULL DEFAULT 'pending'");
     await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_reference TEXT');
-    await pool.query('UPDATE orders SET payment_status=$1,payment_reference=COALESCE($2,payment_reference) WHERE payment_transaction_id=$3', [paymentStatus, reference, transactionId]);
+    const orderId = transactionId.startsWith('order_') ? transactionId.slice(6) : '';
+    if (orderId && /^\\d+$/.test(orderId)) {
+      await pool.query('UPDATE orders SET payment_transaction_id=$1,payment_status=$2,payment_reference=COALESCE($3,payment_reference) WHERE id=$4', [transactionId, paymentStatus, reference, orderId]);
+    } else {
+      await pool.query('UPDATE orders SET payment_status=$1,payment_reference=COALESCE($2,payment_reference) WHERE payment_transaction_id=$3', [paymentStatus, reference, transactionId]);
+    }
     return res.json({ received: true });
   } catch {
     return res.status(500).json({ error: 'Webhook processing failed.' });
@@ -82,10 +87,19 @@ const webhookPatch = `app.post('/api/webhooks/moosyl', express.raw({ type: 'appl
 const checkoutMarker = "app.post('/api/payments/create', auth, async (req, res) => {";
 const checkoutPatch = `app.post('/api/payments/checkout', auth, async (req, res) => {
   if (!process.env.MOOSYL_SECRET_KEY) return res.status(503).json({ error: 'Payment provider is not configured yet.' });
+  if (!pool) return res.status(503).json({ error: 'DATABASE_URL is not configured.' });
   const amount = Number(req.body?.amount);
   const transactionId = String(req.body?.transactionId || '').trim();
-  if (!Number.isFinite(amount) || amount <= 0 || !transactionId) return res.status(400).json({ error: 'Invalid payment data.' });
+  if (!Number.isFinite(amount) || amount <= 0 || !/^order_\\d+$/.test(transactionId)) return res.status(400).json({ error: 'Invalid payment data.' });
   try {
+    await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_transaction_id TEXT');
+    await pool.query("ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_status TEXT NOT NULL DEFAULT 'pending'");
+    const orderId = Number(transactionId.slice(6));
+    const order = await pool.query('SELECT id,total,buyer_id FROM orders WHERE id=$1 AND buyer_id=$2', [orderId, req.user.id]);
+    if (!order.rowCount) return res.status(404).json({ error: 'Order not found.' });
+    if (Math.abs(Number(order.rows[0].total) - amount) > 0.01) return res.status(400).json({ error: 'Payment amount does not match the order.' });
+    await pool.query('UPDATE orders SET payment_transaction_id=$1,payment_status=\'pending\' WHERE id=$2', [transactionId, orderId]);
+
     const requestResponse = await fetch('https://api.moosyl.com/payment-request', {
       method: 'POST',
       headers: { Authorization: process.env.MOOSYL_SECRET_KEY, 'Content-Type': 'application/json' },
@@ -101,6 +115,7 @@ const checkoutPatch = `app.post('/api/payments/checkout', auth, async (req, res)
     }
     const paymentRequestId = requestData?.data?.id || requestData?.id || requestData?.paymentRequestId;
     if (!paymentRequestId) return res.status(502).json({ error: 'Moosyl did not return a payment request ID.' });
+
     const checkoutResponse = await fetch('https://api.moosyl.com/checkout-session', {
       method: 'POST',
       headers: { Authorization: process.env.MOOSYL_SECRET_KEY, 'Content-Type': 'application/json' },
