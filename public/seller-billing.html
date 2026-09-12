@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>BAYAA — Facturation vendeur</title>
   <style>
-    body{font-family:Arial,sans-serif;margin:0;background:#f6f7f9;color:#17202a}.wrap{max-width:1000px;margin:40px auto;padding:20px}.hero{background:#0f766e;color:#fff;padding:28px;border-radius:18px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:24px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:22px;box-shadow:0 8px 24px #0000000b}.price{font-size:30px;font-weight:700}.muted{color:#68707b}.badge{display:inline-block;padding:6px 10px;border-radius:999px;background:#eef6f4;color:#0f766e;font-weight:700}.pay{margin-top:18px;width:100%;padding:12px;border:0;border-radius:10px;background:#111827;color:#fff;font-weight:700;cursor:pointer}.pay:disabled{opacity:.6;cursor:wait}.note{margin-top:22px;background:#fff7ed;border:1px solid #fed7aa;padding:16px;border-radius:12px}.logos{font-weight:700;letter-spacing:.5px}.back{display:inline-block;margin-top:18px;color:#fff}.status{margin-top:18px;background:#eef6f4;border-radius:12px;padding:14px;min-height:20px}
+    body{font-family:Arial,sans-serif;margin:0;background:#f6f7f9;color:#17202a}.wrap{max-width:1000px;margin:40px auto;padding:20px}.hero{background:#0f766e;color:#fff;padding:28px;border-radius:18px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:24px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:22px;box-shadow:0 8px 24px #0000000b}.price{font-size:30px;font-weight:700}.muted{color:#68707b}.badge{display:inline-block;padding:6px 10px;border-radius:999px;background:#eef6f4;color:#0f766e;font-weight:700}.pay{margin-top:18px;width:100%;padding:12px;border:0;border-radius:10px;background:#111827;color:#fff;font-weight:700;cursor:pointer}.pay:disabled{opacity:.6;cursor:not-allowed}.note{margin-top:22px;background:#fff7ed;border:1px solid #fed7aa;padding:16px;border-radius:12px}.logos{font-weight:700;letter-spacing:.2px}.back{display:inline-block;margin-top:18px;color:#fff}.status{margin-top:18px;background:#eef6f4;border-radius:12px;padding:14px;min-height:20px}
   </style>
 </head>
 <body>
@@ -13,63 +13,18 @@
   <section class="hero">
     <span class="badge">BAYAA</span>
     <h1>Facturation vendeur</h1>
-    <p>Le vendeur choisit entre la formule gratuite avec commission et les abonnements professionnels.</p>
-    <p class="logos">Paiement de la plateforme : VISA / MASTERCARD uniquement.</p>
+    <p>Le vendeur paie uniquement les frais de la plateforme. Les acheteurs traitent directement avec les vendeurs.</p>
+    <p class="logos">Paiement : Visa / Mastercard / cartes prépayées compatibles (ex. RedotPay).</p>
     <a class="back" href="/">← Retour à BAYAA</a>
   </section>
   <div class="status" id="status">Chargement de votre statut…</div>
   <div class="grid">
-    <article class="card"><h2>Free</h2><div class="price">0 MRU</div><p class="muted">Commission de 5% sur les ventes éligibles.</p><button class="pay" disabled data-plan="free">Plan actuel / gratuit</button></article>
-    <article class="card"><h2>Pro</h2><div class="price">500 MRU<span class="muted"> / mois</span></div><p class="muted">Commission réduite à 3%.</p><button class="pay" data-plan="pro">Payer avec Visa / Mastercard</button></article>
-    <article class="card"><h2>Business</h2><div class="price">1 500 MRU<span class="muted"> / mois</span></div><p class="muted">Commission réduite à 2%.</p><button class="pay" data-plan="business">Payer avec Visa / Mastercard</button></article>
+    <article class="card"><h2>Free</h2><div class="price">0 MRU</div><p class="muted">Commission de 5% sur les ventes que vous déclarez.</p><button class="pay" disabled>Plan gratuit</button></article>
+    <article class="card"><h2>Pro</h2><div class="price">500 MRU<span class="muted"> / mois</span></div><p class="muted">Commission réduite à 3%.</p><button class="pay" data-plan="pro">Payer par carte</button></article>
+    <article class="card"><h2>Business</h2><div class="price">1 500 MRU<span class="muted"> / mois</span></div><p class="muted">Commission réduite à 2%.</p><button class="pay" data-plan="business">Payer par carte</button></article>
   </div>
-  <div class="note"><strong>Important :</strong> le paiement de vos frais BAYAA est séparé des ventes entre acheteurs et vendeurs. Les acheteurs contactent directement les vendeurs. BAYAA ne collecte pas le paiement des ventes entre eux.</div>
+  <div class="note"><strong>Important :</strong> BAYAA ne collecte pas le paiement des ventes entre acheteurs et vendeurs. Le paiement par carte ici concerne uniquement votre abonnement BAYAA.</div>
 </div>
-<script>
-(() => {
-  const token = localStorage.getItem('bayaa-token');
-  const status = document.getElementById('status');
-  const buttons = [...document.querySelectorAll('[data-plan]')].filter(b => b.dataset.plan !== 'free');
-  if (!token) { status.textContent = 'Connectez-vous comme vendeur pour gérer votre abonnement.'; buttons.forEach(b => b.disabled = true); return; }
-
-  const load = async () => {
-    try {
-      const r = await fetch('/api/seller/billing/summary', { headers: { Authorization: `Bearer ${token}` } });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || 'Impossible de charger le statut.');
-      status.textContent = `Plan : ${d.plan.toUpperCase()} · Statut : ${d.subscriptionStatus} · Commission : ${(Number(d.commissionRate) * 100).toFixed(0)}%`;
-    } catch (e) { status.textContent = e.message; }
-  };
-
-  buttons.forEach(btn => btn.addEventListener('click', async () => {
-    btn.disabled = true;
-    status.textContent = 'Préparation du paiement sécurisé…';
-    try {
-      const r = await fetch('/api/seller/billing/checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ plan: btn.dataset.plan })
-      });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || 'Impossible de créer le paiement.');
-      window.location.href = d.checkoutUrl;
-    } catch (e) {
-      status.textContent = e.message;
-      btn.disabled = false;
-    }
-  }));
-
-  const params = new URLSearchParams(location.search);
-  const orderId = params.get('orderId');
-  if (params.get('resultIndicator') && orderId) {
-    fetch(`/api/seller/billing/verify?orderId=${encodeURIComponent(orderId)}`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => r.json())
-      .then(d => { status.textContent = d.paid ? 'Paiement confirmé ✅' : 'Paiement non confirmé.'; load(); })
-      .catch(() => {});
-  } else {
-    load();
-  }
-})();
-</script>
+<script src="/seller-billing.js" defer></script>
 </body>
 </html>
