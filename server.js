@@ -74,9 +74,19 @@ const initDb = async () => {
       address TEXT NOT NULL,
       total NUMERIC(12,2) NOT NULL,
       status TEXT NOT NULL DEFAULT 'جديد',
+      payment_method TEXT NOT NULL DEFAULT 'cod',
       items JSONB NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name='orders' AND column_name='payment_method'
+      ) THEN
+        ALTER TABLE orders ADD COLUMN payment_method TEXT NOT NULL DEFAULT 'cod';
+      END IF;
+    END $$;
   `);
 };
 
@@ -160,10 +170,11 @@ app.delete('/api/products/:id', auth, sellerOnly, async (req, res) => {
 
 app.post('/api/orders', auth, async (req, res) => {
   if (!requireDb(res)) return;
-  const { customerName, phone, city, address, items, total } = req.body || {};
-  if (!customerName?.trim() || !phone?.trim() || !city?.trim() || !address?.trim() || !Array.isArray(items) || !items.length || !Number.isFinite(Number(total))) return res.status(400).json({ error: 'Invalid order data.' });
+  const { customerName, phone, city, address, items, total, paymentMethod = 'cod' } = req.body || {};
+  const allowedPaymentMethods = new Set(['cod','bankily','sedad','masrivi']);
+  if (!customerName?.trim() || !phone?.trim() || !city?.trim() || !address?.trim() || !Array.isArray(items) || !items.length || !Number.isFinite(Number(total)) || !allowedPaymentMethods.has(paymentMethod)) return res.status(400).json({ error: 'Invalid order data.' });
   try {
-    const result = await pool.query('INSERT INTO orders (buyer_id,customer_name,phone,city,address,total,items) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id,status,total,created_at', [req.user.id, customerName.trim(), phone.trim(), city.trim(), address.trim(), Number(total), JSON.stringify(items)]);
+    const result = await pool.query('INSERT INTO orders (buyer_id,customer_name,phone,city,address,total,status,payment_method,items) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id,status,payment_method,total,created_at', [req.user.id, customerName.trim(), phone.trim(), city.trim(), address.trim(), Number(total), paymentMethod === 'cod' ? 'جديد' : 'بانتظار الدفع', paymentMethod, JSON.stringify(items)]);
     res.status(201).json({ order: result.rows[0] });
   } catch { res.status(500).json({ error: 'Could not create order.' }); }
 });
@@ -171,7 +182,7 @@ app.post('/api/orders', auth, async (req, res) => {
 app.get('/api/orders/mine', auth, async (req, res) => {
   if (!requireDb(res)) return;
   try {
-    const result = await pool.query('SELECT id,status,total,customer_name,phone,city,address,items,created_at FROM orders WHERE buyer_id=$1 ORDER BY created_at DESC', [req.user.id]);
+    const result = await pool.query('SELECT id,status,payment_method,total,customer_name,phone,city,address,items,created_at FROM orders WHERE buyer_id=$1 ORDER BY created_at DESC', [req.user.id]);
     res.json({ orders: result.rows });
   } catch { res.status(500).json({ error: 'Could not load orders.' }); }
 });
@@ -179,7 +190,7 @@ app.get('/api/orders/mine', auth, async (req, res) => {
 app.get('/api/seller/orders', auth, sellerOnly, async (req, res) => {
   if (!requireDb(res)) return;
   try {
-    const result = await pool.query(`SELECT o.id,o.status,o.total,o.customer_name,o.city,o.created_at,o.items FROM orders o WHERE EXISTS (SELECT 1 FROM jsonb_array_elements(o.items) item WHERE item->>'sellerId' = $1) ORDER BY o.created_at DESC`, [String(req.user.id)]);
+    const result = await pool.query(`SELECT o.id,o.status,o.payment_method,o.total,o.customer_name,o.city,o.created_at,o.items FROM orders o WHERE EXISTS (SELECT 1 FROM jsonb_array_elements(o.items) item WHERE item->>'sellerId' = $1) ORDER BY o.created_at DESC`, [String(req.user.id)]);
     res.json({ orders: result.rows });
   } catch { res.status(500).json({ error: 'Could not load seller orders.' }); }
 });
