@@ -79,9 +79,49 @@ const webhookPatch = `app.post('/api/webhooks/moosyl', express.raw({ type: 'appl
 
 `;
 
+const checkoutMarker = "app.post('/api/payments/create', auth, async (req, res) => {";
+const checkoutPatch = `app.post('/api/payments/checkout', auth, async (req, res) => {
+  if (!process.env.MOOSYL_SECRET_KEY) return res.status(503).json({ error: 'Payment provider is not configured yet.' });
+  const amount = Number(req.body?.amount);
+  const transactionId = String(req.body?.transactionId || '').trim();
+  if (!Number.isFinite(amount) || amount <= 0 || !transactionId) return res.status(400).json({ error: 'Invalid payment data.' });
+  try {
+    const requestResponse = await fetch('https://api.moosyl.com/payment-request', {
+      method: 'POST',
+      headers: { Authorization: process.env.MOOSYL_SECRET_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amount, transactionId }),
+    });
+    let requestData = await requestResponse.json().catch(() => ({}));
+    if (!requestResponse.ok) {
+      const lookup = await fetch(\`https://api.moosyl.com/payment-request/transaction/\${encodeURIComponent(transactionId)}\`, {
+        headers: { Authorization: process.env.MOOSYL_SECRET_KEY },
+      });
+      if (lookup.ok) requestData = await lookup.json().catch(() => ({}));
+      else return res.status(requestResponse.status).json({ error: requestData?.error || 'Payment request failed.' });
+    }
+    const paymentRequestId = requestData?.data?.id || requestData?.id || requestData?.paymentRequestId;
+    if (!paymentRequestId) return res.status(502).json({ error: 'Moosyl did not return a payment request ID.' });
+    const checkoutResponse = await fetch('https://api.moosyl.com/checkout-session', {
+      method: 'POST',
+      headers: { Authorization: process.env.MOOSYL_SECRET_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paymentRequestId }),
+    });
+    const checkoutData = await checkoutResponse.json().catch(() => ({}));
+    if (!checkoutResponse.ok) return res.status(checkoutResponse.status).json({ error: checkoutData?.error || 'Checkout session creation failed.' });
+    const checkoutUrl = checkoutData?.checkoutUrl || checkoutData?.data?.checkoutUrl || checkoutData?.url;
+    if (!checkoutUrl) return res.status(502).json({ error: 'Moosyl did not return a checkout URL.' });
+    res.status(201).json({ transactionId, paymentRequestId, checkoutUrl });
+  } catch {
+    res.status(502).json({ error: 'Payment provider is unavailable.' });
+  }
+});
+
+`;
+
 const patched = source
   .replace(productMarker, (source.includes("app.patch('/api/products/:id'") ? '' : productPatch) + productMarker)
-  .replace(webhookInsertMarker, webhookPatch + webhookInsertMarker);
+  .replace(webhookInsertMarker, webhookPatch + webhookInsertMarker)
+  .replace(checkoutMarker, (source.includes("app.post('/api/payments/checkout'") ? '' : checkoutPatch) + checkoutMarker);
 const temp = new URL('../.bayaa-runtime-server.mjs', import.meta.url);
 await fs.writeFile(temp, patched, 'utf8');
 await import(`${temp.href}?v=${Date.now()}`);
