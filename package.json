@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@paddle/paddle-js": "latest",
+    "@paddle/paddle-node-sdk": "latest",
     "@vitejs/plugin-react": "latest",
     "bcryptjs": "latest",
     "cors": "latest",
