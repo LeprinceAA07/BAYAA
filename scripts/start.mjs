@@ -44,13 +44,14 @@ const webhookPatch = `app.post('/api/webhooks/moosyl', require('express').raw({ 
   const eventHeader = String(req.headers['x-webhook-event'] || '');
   if (!signature.startsWith('sha256=')) return res.status(401).json({ error: 'Invalid signature.' });
   const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.from(String(req.body || ''), 'utf8');
-  const expected = require('node:crypto').createHmac('sha256', secret).update(raw).digest('hex');
+  const crypto = await import('node:crypto');
+  const expected = crypto.createHmac('sha256', secret).update(raw).digest('hex');
   const received = signature.slice(7);
   let valid = false;
   try {
     const a = Buffer.from(received, 'hex');
     const b = Buffer.from(expected, 'hex');
-    valid = a.length === b.length && require('node:crypto').timingSafeEqual(a, b);
+    valid = a.length === b.length && crypto.timingSafeEqual(a, b);
   } catch { valid = false; }
   if (!valid) return res.status(401).json({ error: 'Invalid signature.' });
   let payload;
