@@ -11,6 +11,20 @@ const tiers = [
 
 const escapeHtml = (value) => String(value).replace(/[&<>\'\"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]);
 
+if (import.meta.env.DEV) {
+  // Debug visibility into which BAYAA_PADDLE_* variables Vite actually sees at build time.
+  // This helps catch malformed/missing Railway variables (e.g. a variable whose value
+  // contains embedded newlines) before they surface as "Missing Paddle price IDs" errors.
+  console.log('[pricing/env] BAYAA_PADDLE_ENVIRONMENT =', import.meta.env.BAYAA_PADDLE_ENVIRONMENT);
+  console.log('[pricing/env] BAYAA_PADDLE_CLIENT_TOKEN present =', Boolean(import.meta.env.BAYAA_PADDLE_CLIENT_TOKEN));
+  console.log('[pricing/env] BAYAA_PADDLE_STARTER_MONTH_PRICE_ID =', import.meta.env.BAYAA_PADDLE_STARTER_MONTH_PRICE_ID);
+  console.log('[pricing/env] BAYAA_PADDLE_STARTER_YEAR_PRICE_ID =', import.meta.env.BAYAA_PADDLE_STARTER_YEAR_PRICE_ID);
+  console.log('[pricing/env] BAYAA_PADDLE_PRO_MONTH_PRICE_ID =', import.meta.env.BAYAA_PADDLE_PRO_MONTH_PRICE_ID);
+  console.log('[pricing/env] BAYAA_PADDLE_PRO_YEAR_PRICE_ID =', import.meta.env.BAYAA_PADDLE_PRO_YEAR_PRICE_ID);
+  console.log('[pricing/env] BAYAA_PADDLE_ADVANCED_MONTH_PRICE_ID =', import.meta.env.BAYAA_PADDLE_ADVANCED_MONTH_PRICE_ID);
+  console.log('[pricing/env] BAYAA_PADDLE_ADVANCED_YEAR_PRICE_ID =', import.meta.env.BAYAA_PADDLE_ADVANCED_YEAR_PRICE_ID);
+}
+
 function PricingPage({ countryCode, signedInEmail }) {
   const [billing, setBilling] = useState('month');
   const [paddle, setPaddle] = useState(null);
