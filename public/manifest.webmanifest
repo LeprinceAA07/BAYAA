@@ -1,0 +1,12 @@
+{
+  "name": "BAYAA — بياع",
+  "short_name": "BAYAA",
+  "description": "سوق رقمي موريتاني للشراء والبيع",
+  "start_url": "/",
+  "display": "standalone",
+  "dir": "rtl",
+  "lang": "ar",
+  "background_color": "#f7f9f8",
+  "theme_color": "#0f766e",
+  "icons": []
+}
