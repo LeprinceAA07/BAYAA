@@ -3,14 +3,35 @@ import { createRoot } from 'react-dom/client';
 import { initializePaddle } from '@paddle/paddle-js';
 import './styles.css';
 
-/** @typedef {{name:'Starter'|'Pro'|'Advanced',description:string,features:string[],priceId:{month:string,year:string}}} Tier */
+export interface Tier {
+  name: 'Starter' | 'Pro' | 'Advanced'
+  description: string
+  features: string[]
+  priceId: { month: string; year: string }
+}
+
 const tiers = [
-  { name: 'Starter', description: 'للبائعين الذين يبدأون البيع مع BAYAA.', features: ['إضافة المنتجات', 'لوحة بائع أساسية', 'تواصل مباشر مع المشترين'], priceId: { month: import.meta.env.VITE_PADDLE_STARTER_MONTH_PRICE_ID || '', year: import.meta.env.VITE_PADDLE_STARTER_YEAR_PRICE_ID || '' } },
-  { name: 'Pro', description: 'للبائعين النشطين الذين يريدون تكلفة عمولة أقل.', features: ['كل مزايا Starter', 'عمولة مخفضة', 'أولوية في أدوات البائع'], priceId: { month: import.meta.env.VITE_PADDLE_PRO_MONTH_PRICE_ID || '', year: import.meta.env.VITE_PADDLE_PRO_YEAR_PRICE_ID || '' } },
-  { name: 'Advanced', description: 'للبائعين ذوي حجم المبيعات المرتفع.', features: ['كل مزايا Pro', 'أقل عمولة', 'أولوية للدعم'], priceId: { month: import.meta.env.VITE_PADDLE_ADVANCED_MONTH_PRICE_ID || '', year: import.meta.env.VITE_PADDLE_ADVANCED_YEAR_PRICE_ID || '' } },
+  {
+    name: 'Starter',
+    description: 'للبائعين الذين يبدأون البيع مع BAYAA.',
+    features: ['إضافة المنتجات', 'لوحة بائع أساسية', 'تواصل مباشر مع المشترين'],
+    priceId: { month: import.meta.env.BAYAA_PADDLE_STARTER_MONTH_PRICE_ID || '', year: import.meta.env.BAYAA_PADDLE_STARTER_YEAR_PRICE_ID || '' },
+  },
+  {
+    name: 'Pro',
+    description: 'للبائعين النشطين الذين يريدون تكلفة عمولة أقل.',
+    features: ['كل مزايا Starter', 'عمولة مخفضة', 'أولوية في أدوات البائع'],
+    priceId: { month: import.meta.env.BAYAA_PADDLE_PRO_MONTH_PRICE_ID || '', year: import.meta.env.BAYAA_PADDLE_PRO_YEAR_PRICE_ID || '' },
+  },
+  {
+    name: 'Advanced',
+    description: 'للبائعين ذوي حجم المبيعات المرتفع.',
+    features: ['كل مزايا Pro', 'أقل عمولة', 'أولوية للدعم'],
+    priceId: { month: import.meta.env.BAYAA_PADDLE_ADVANCED_MONTH_PRICE_ID || '', year: import.meta.env.BAYAA_PADDLE_ADVANCED_YEAR_PRICE_ID || '' },
+  },
 ];
 
-const escapeHtml = (value) => String(value).replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]);
+const escapeHtml = (value) => String(value).replace(/[&<>'\"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]);
 
 function PricingPage({ countryCode, signedInEmail }) {
   const [billing, setBilling] = useState('month');
@@ -24,12 +45,12 @@ function PricingPage({ countryCode, signedInEmail }) {
     let cancelled = false;
     (async () => {
       try {
-        const environment = String(import.meta.env.VITE_PADDLE_ENVIRONMENT || '').trim().toLowerCase();
-        const token = String(import.meta.env.VITE_PADDLE_CLIENT_TOKEN || '').trim();
+        const environment = String(import.meta.env.BAYAA_PADDLE_ENVIRONMENT || '').trim().toLowerCase();
+        const token = String(import.meta.env.BAYAA_PADDLE_CLIENT_TOKEN || '').trim();
         if (!environment) throw new Error('Paddle environment is not configured.');
         if (environment !== 'sandbox') throw new Error('This pricing page is configured for Paddle Sandbox only.');
         if (!token.startsWith('test_')) throw new Error('A Paddle Sandbox client-side token starting with test_ is required.');
-        const instance = await initializePaddle({ token });
+        const instance = await initializePaddle({ environment, token });
         if (!instance) throw new Error('Paddle failed to initialize.');
         if (cancelled) return;
         setPaddle(instance);
@@ -75,8 +96,7 @@ function PricingPage({ countryCode, signedInEmail }) {
   const subscribe = (tier) => {
     if (!paddle) return;
     const priceId = tier.priceId[billing];
-    const formatted = prices[priceId];
-    if (!priceId || !formatted) return;
+    if (!priceId || !prices[priceId]) return;
     const checkout = {
       items: [{ priceId, quantity: 1 }],
       settings: {
@@ -106,14 +126,15 @@ function PricingPage({ countryCode, signedInEmail }) {
       <section className="pricing-grid">
         {selected.map((tier, index) => {
           const price = prices[tier.selectedPriceId];
+          const isStarter = tier.name === 'Starter';
           return <article className={`price-card ${index === 1 ? 'featured' : ''}`} key={tier.name}>
             {index === 1 && <span className="featured-badge">الأكثر طلبًا</span>}
             <h2>{tier.name}</h2>
             <p className="description">{tier.description}</p>
-            <div className="price-value">{loading ? '...' : price?.total || 'غير متاح'}</div>
-            <div className="billing-label">{billing === 'month' ? 'شهريًا' : 'سنويًا'}</div>
+            <div className="price-value">{isStarter ? '$0.00' : (loading ? '...' : price?.total || 'غير متاح')}</div>
+            <div className="billing-label">{isStarter ? 'مجانًا' : (billing === 'month' ? 'شهريًا' : 'سنويًا')}</div>
             <ul>{tier.features.map((feature) => <li key={feature}>✓ {feature}</li>)}</ul>
-            <button className="subscribe" disabled={!paddle || !price || loading} onClick={() => subscribe(tier)}>Subscribe</button>
+            <button className="subscribe" disabled={isStarter || !paddle || !price || loading} onClick={() => subscribe(tier)}>{isStarter ? 'ابدأ مجانًا' : 'Subscribe'}</button>
           </article>;
         })}
       </section>
