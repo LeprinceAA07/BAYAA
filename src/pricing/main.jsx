@@ -34,7 +34,7 @@ const tiers = [
 ];
 
 const escapeHtml = (value) =>
-  String(value).replace(/[&<>'"]/g, (char) => ({
+  String(value).replace(/[&<>'\"]/g, (char) => ({
     '&': '&amp;',
     '<': '&lt;',
     '>': '&gt;',
@@ -42,7 +42,18 @@ const escapeHtml = (value) =>
     '"': '&quot;',
   })[char]);
 
-function PricingPage({ countryCode, signedInEmail }) {
+const getSessionEmail = () => {
+  try {
+    const raw = localStorage.getItem('bayaa-session');
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw);
+    return parsed?.email || parsed?.user?.email || undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+function PricingPage({ signedInEmail }) {
   const [billing, setBilling] = useState('month');
   const [paddle, setPaddle] = useState(null);
   const [prices, setPrices] = useState({});
@@ -105,7 +116,6 @@ function PricingPage({ countryCode, signedInEmail }) {
         const request = {
           items: ids.map((priceId) => ({ priceId, quantity: 1 })),
         };
-        if (countryCode) request.address = { countryCode };
 
         const result = await paddle.PricePreview(request);
         if (cancelled) return;
@@ -128,7 +138,7 @@ function PricingPage({ countryCode, signedInEmail }) {
     return () => {
       cancelled = true;
     };
-  }, [paddle, billing, countryCode, selected]);
+  }, [paddle, billing, selected]);
 
   const subscribe = (tier) => {
     if (!paddle) return;
@@ -156,22 +166,9 @@ function PricingPage({ countryCode, signedInEmail }) {
           <h1>اختر خطة البائع المناسبة لك</h1>
           <p>أسعار محلية تُحسب من Paddle حسب بلدك، مع دفع آمن داخل Checkout.</p>
           <div className="billing-toggle" role="group" aria-label="Billing period">
-            <button
-              className={billing === 'month' ? 'active' : ''}
-              onClick={() => setBilling('month')}
-            >
-              شهري
-            </button>
-            <button
-              className={billing === 'year' ? 'active' : ''}
-              onClick={() => setBilling('year')}
-            >
-              سنوي
-            </button>
+            <button className={billing === 'month' ? 'active' : ''} onClick={() => setBilling('month')}>شهري</button>
+            <button className={billing === 'year' ? 'active' : ''} onClick={() => setBilling('year')}>سنوي</button>
           </div>
-          {countryCode && (
-            <div className="country-note">Country detected: {escapeHtml(countryCode)}</div>
-          )}
         </div>
 
         {error && <div className="error-banner">{escapeHtml(error)}</div>}
@@ -187,18 +184,10 @@ function PricingPage({ countryCode, signedInEmail }) {
                 {index === 1 && <span className="featured-badge">الأكثر طلبًا</span>}
                 <h2>{tier.name}</h2>
                 <p className="description">{tier.description}</p>
-                <div className="price-value">
-                  {loading && !isStarter ? '...' : displayTotal || 'غير متاح'}
-                </div>
-                <div className="billing-label">
-                  {isStarter ? 'مجانًا' : billing === 'month' ? 'شهريًا' : 'سنويًا'}
-                </div>
+                <div className="price-value">{loading && !isStarter ? '...' : displayTotal || 'غير متاح'}</div>
+                <div className="billing-label">{isStarter ? 'مجانًا' : billing === 'month' ? 'شهريًا' : 'سنويًا'}</div>
                 <ul>{tier.features.map((feature) => <li key={feature}>✓ {feature}</li>)}</ul>
-                <button
-                  className="subscribe"
-                  disabled={isStarter || !paddle || !price || loading}
-                  onClick={() => subscribe(tier)}
-                >
+                <button className="subscribe" disabled={isStarter || !paddle || !price || loading} onClick={() => subscribe(tier)}>
                   {isStarter ? 'ابدأ مجانًا' : 'Subscribe'}
                 </button>
               </article>
@@ -214,15 +203,6 @@ function PricingPage({ countryCode, signedInEmail }) {
   );
 }
 
-fetch('/api/pricing-context')
-  .then((response) => response.json())
-  .then(({ countryCode, email }) => {
-    createRoot(document.getElementById('pricing-root')).render(
-      <PricingPage countryCode={countryCode || undefined} signedInEmail={email || undefined} />,
-    );
-  })
-  .catch(() => {
-    createRoot(document.getElementById('pricing-root')).render(
-      <PricingPage signedInEmail={undefined} />,
-    );
-  });
+createRoot(document.getElementById('pricing-root')).render(
+  <PricingPage signedInEmail={getSessionEmail()} />,
+);
