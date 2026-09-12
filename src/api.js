@@ -21,6 +21,7 @@ export const api = {
   createOrder: (payload) => request('/api/orders', { method: 'POST', body: JSON.stringify(payload) }),
   myOrders: () => request('/api/orders/mine'),
   sellerOrders: () => request('/api/seller/orders'),
+  updateSellerOrderStatus: (id, status) => request(`/api/seller/orders/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
   createPayment: (payload) => request('/api/payments/create', { method: 'POST', body: JSON.stringify(payload) }),
 };
 
