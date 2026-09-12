@@ -122,14 +122,14 @@ const orderPaymentMarker = "app.post('/api/orders', auth, async (req, res) => {"
 const orderPaymentPatch = `app.post('/api/orders', auth, async (req, res) => {
   if (!requireDb(res)) return;
   const { customerName, phone, city, address, items, total, paymentMethod = 'cod' } = req.body || {};
-  const allowedPaymentMethods = new Set(['cod','bankily','sedad','masrivi']);
-  if (!customerName?.trim() || !phone?.trim() || !city?.trim() || !address?.trim() || !Array.isArray(items) || !items.length || !Number.isFinite(Number(total)) || !allowedPaymentMethods.has(paymentMethod)) return res.status(400).json({ error: 'Invalid order data.' });
-  const paymentTransactionId = paymentMethod === 'cod' ? null : \`BAYAA-\${Date.now()}-\${Math.random().toString(36).slice(2,10)}\`;
+  const allowedPaymentMethods = new Set(['card']);
+  if (!customerName?.trim() || !phone?.trim() || !city?.trim() || !address?.trim() || !Array.isArray(items) || !items.length || !Number.isFinite(Number(total)) || !allowedPaymentMethods.has(paymentMethod)) return res.status(400).json({ error: 'Only Visa/Mastercard card payments are supported.' });
+  const paymentTransactionId = \`BAYAA-\${Date.now()}-\${Math.random().toString(36).slice(2,10)}\`;
   try {
     await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_transaction_id TEXT');
     await pool.query("ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_status TEXT NOT NULL DEFAULT 'pending'");
     await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_reference TEXT');
-    const result = await pool.query('INSERT INTO orders (buyer_id,customer_name,phone,city,address,total,status,payment_method,payment_transaction_id,payment_status,items) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id,status,payment_method,payment_transaction_id,payment_status,total,created_at', [req.user.id, customerName.trim(), phone.trim(), city.trim(), address.trim(), Number(total), paymentMethod === 'cod' ? 'جديد' : 'بانتظار الدفع', paymentMethod, paymentTransactionId, 'pending', JSON.stringify(items)]);
+    const result = await pool.query('INSERT INTO orders (buyer_id,customer_name,phone,city,address,total,status,payment_method,payment_transaction_id,payment_status,items) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id,status,payment_method,payment_transaction_id,payment_status,total,created_at', [req.user.id, customerName.trim(), phone.trim(), city.trim(), address.trim(), Number(total), 'بانتظار الدفع', 'card', paymentTransactionId, 'pending', JSON.stringify(items)]);
     res.status(201).json({ order: result.rows[0] });
   } catch { res.status(500).json({ error: 'Could not create order.' }); }
 });
