@@ -37,7 +37,7 @@ const productPatch = `app.patch('/api/products/:id', auth, sellerOnly, async (re
 `;
 
 const webhookInsertMarker = "app.use(express.json({ limit: '1mb' }));";
-const webhookPatch = `app.post('/api/webhooks/moosyl', require('express').raw({ type: 'application/json', limit: '1mb' }), async (req, res) => {
+const webhookPatch = `app.post('/api/webhooks/moosyl', express.raw({ type: 'application/json', limit: '1mb' }), async (req, res) => {
   const secret = process.env.MOOSYL_WEBHOOK_SECRET;
   if (!secret) return res.status(503).json({ error: 'Payment webhook is not configured.' });
   const signature = String(req.headers['x-webhook-signature'] || '');
