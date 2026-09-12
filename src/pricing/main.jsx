@@ -1,59 +1,51 @@
-// BAYAA pricing build: force fresh Vite env injection.
 import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { initializePaddle } from '@paddle/paddle-js';
 import './styles.css';
 
-const tiers = [
-  {
-    name: 'Starter',
-    description: 'للبائعين الذين يبدأون البيع مع BAYAA.',
-    features: ['إضافة المنتجات', 'لوحة بائع أساسية', 'تواصل مباشر مع المشترين'],
-    priceId: { month: import.meta.env.BAYAA_PADDLE_STARTER_MONTH_PRICE_ID || '', year: import.meta.env.BAYAA_PADDLE_STARTER_YEAR_PRICE_ID || '' },
-  },
-  {
-    name: 'Pro',
-    description: 'للبائعين النشطين الذين يريدون تكلفة عمولة أقل.',
-    features: ['كل مزايا Starter', 'عمولة مخفضة', 'أولوية في أدوات البائع'],
-    priceId: { month: import.meta.env.BAYAA_PADDLE_PRO_MONTH_PRICE_ID || '', year: import.meta.env.BAYAA_PADDLE_PRO_YEAR_PRICE_ID || '' },
-  },
-  {
-    name: 'Advanced',
-    description: 'للبائعين ذوي حجم المبيعات المرتفع.',
-    features: ['كل مزايا Pro', 'أقل عمولة', 'أولوية للدعم'],
-    priceId: { month: import.meta.env.BAYAA_PADDLE_ADVANCED_MONTH_PRICE_ID || '', year: import.meta.env.BAYAA_PADDLE_ADVANCED_YEAR_PRICE_ID || '' },
-  },
+const emptyPlans = {
+  Starter: { month: '', year: '' },
+  Pro: { month: '', year: '' },
+  Advanced: { month: '', year: '' },
+};
+
+const tierMeta = [
+  { name: 'Starter', description: 'للبائعين الذين يبدأون البيع مع BAYAA.', features: ['إضافة المنتجات', 'لوحة بائع أساسية', 'تواصل مباشر مع المشترين'] },
+  { name: 'Pro', description: 'للبائعين النشطين الذين يريدون تكلفة عمولة أقل.', features: ['كل مزايا Starter', 'عمولة مخفضة', 'أولوية في أدوات البائع'] },
+  { name: 'Advanced', description: 'للبائعين ذوي حجم المبيعات المرتفع.', features: ['كل مزايا Pro', 'أقل عمولة', 'أولوية للدعم'] },
 ];
 
 const escapeHtml = (value) => String(value).replace(/[&<>\'\"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]);
 
-function PricingPage({ countryCode, signedInEmail }) {
+function PricingPage({ config, countryCode, signedInEmail }) {
   const [billing, setBilling] = useState('month');
   const [paddle, setPaddle] = useState(null);
   const [prices, setPrices] = useState({});
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
-  const selected = useMemo(() => tiers.map((tier) => ({ ...tier, selectedPriceId: tier.priceId[billing] })), [billing]);
+  const plans = config?.priceIds || emptyPlans;
+  const environment = String(config?.environment || '').trim().toLowerCase();
+  const token = String(config?.clientToken || '').trim();
+  const tiers = tierMeta.map((tier) => ({ ...tier, priceId: plans[tier.name] || { month: '', year: '' } }));
+  const selected = useMemo(() => tiers.map((tier) => ({ ...tier, selectedPriceId: tier.priceId[billing] })), [billing, config]);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const environment = String(import.meta.env.BAYAA_PADDLE_ENVIRONMENT || '').trim().toLowerCase();
-        const token = String(import.meta.env.BAYAA_PADDLE_CLIENT_TOKEN || '').trim();
-        if (!environment) throw new Error('Paddle environment is not configured.');
-        if (environment !== 'sandbox') throw new Error('This pricing page is configured for Paddle Sandbox only.');
-        if (!token.startsWith('test_')) throw new Error('A Paddle Sandbox client-side token starting with test_ is required.');
+        if (!environment) throw new Error('Paddle environment is not configured on BAYAA.');
+        if (environment !== 'sandbox') throw new Error('BAYAA pricing is currently configured for Paddle Sandbox only.');
+        if (!token.startsWith('test_')) throw new Error('The BAYAA Paddle Sandbox client token is missing or invalid.');
         const instance = await initializePaddle({ environment, token });
         if (!instance) throw new Error('Paddle failed to initialize.');
         if (!cancelled) setPaddle(instance);
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Could not initialize Paddle.');
+        if (!cancelled) { setError(e instanceof Error ? e.message : 'Could not initialize Paddle.'); setLoading(false); }
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [environment, token]);
 
   useEffect(() => {
     let cancelled = false;
@@ -65,15 +57,20 @@ function PricingPage({ countryCode, signedInEmail }) {
     (async () => {
       try {
         const request = { items: ids.map((priceId) => ({ priceId, quantity: 1 })) };
-        if (countryCode) request.address = { countryCode };
+        if (/^[A-Z]{2}$/.test(String(countryCode || ''))) request.address = { countryCode };
         const result = await paddle.PricePreview(request);
         if (cancelled) return;
         const map = {};
-        for (const line of result?.data?.details?.lineItems || []) map[line.price.id] = line.formattedTotals;
+        for (const line of result?.data?.details?.lineItems || []) {
+          const id = line?.price?.id;
+          const total = line?.formattedTotals?.total;
+          if (id && total) map[id] = total;
+        }
+        if (!Object.keys(map).length) throw new Error('Paddle returned no localized totals for the configured prices.');
         setPrices(map);
         setError('');
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Could not load localized prices.');
+        if (!cancelled) setError(e instanceof Error ? e.message : 'Could not load localized prices from Paddle.');
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -84,8 +81,7 @@ function PricingPage({ countryCode, signedInEmail }) {
   const subscribe = (tier) => {
     if (!paddle) return;
     const priceId = tier.priceId[billing];
-    const formattedTotals = prices[priceId];
-    if (!priceId || !formattedTotals) return;
+    if (!priceId || !prices[priceId]) return;
     paddle.Checkout.open({
       items: [{ priceId, quantity: 1 }],
       settings: { displayMode: 'overlay', variant: 'one-page', successUrl: `${window.location.origin}/welcome` },
@@ -99,7 +95,7 @@ function PricingPage({ countryCode, signedInEmail }) {
         <div className="pricing-hero">
           <span className="eyebrow">BAYAA SELLER PLANS</span>
           <h1>اختر خطة البائع المناسبة لك</h1>
-          <p>أسعار محلية تُحسب من Paddle حسب بلدك، مع دفع آمن داخل Checkout.</p>
+          <p>الأسعار تُحسب مباشرة من Paddle حسب بلدك، بدون حساب يدوي على BAYAA.</p>
           <div className="billing-toggle" role="group" aria-label="Billing period">
             <button className={billing === 'month' ? 'active' : ''} onClick={() => setBilling('month')}>شهري</button>
             <button className={billing === 'year' ? 'active' : ''} onClick={() => setBilling('year')}>سنوي</button>
@@ -109,21 +105,21 @@ function PricingPage({ countryCode, signedInEmail }) {
         {error && <div className="error-banner">{escapeHtml(error)}</div>}
         <section className="pricing-grid">
           {selected.map((tier, index) => {
-            const formattedTotals = prices[tier.selectedPriceId];
+            const formattedTotal = prices[tier.selectedPriceId];
             return (
               <article className={`price-card ${index === 1 ? 'featured' : ''}`} key={tier.name}>
                 {index === 1 && <span className="featured-badge">الأكثر طلبًا</span>}
                 <h2>{tier.name}</h2>
                 <p className="description">{tier.description}</p>
-                <div className="price-value">{loading ? '...' : formattedTotals || 'غير متاح'}</div>
+                <div className="price-value">{loading ? '...' : formattedTotal || 'غير متاح'}</div>
                 <div className="billing-label">{billing === 'month' ? 'شهريًا' : 'سنويًا'}</div>
                 <ul>{tier.features.map((feature) => <li key={feature}>✓ {feature}</li>)}</ul>
-                <button className="subscribe" disabled={!paddle || !formattedTotals || loading} onClick={() => subscribe(tier)}>Subscribe</button>
+                <button className="subscribe" disabled={!paddle || !formattedTotal || loading} onClick={() => subscribe(tier)}>Subscribe</button>
               </article>
             );
           })}
         </section>
-        <p className="sandbox-note">Paddle Sandbox • الأسعار المعروضة هي totals المرسلة من Paddle مباشرة، بدون حساب أو إعادة تنسيق على الواجهة.</p>
+        <p className="sandbox-note">Paddle Sandbox • السعر المعروض هو total المرسل من Paddle مباشرة.</p>
       </div>
     </main>
   );
@@ -131,6 +127,6 @@ function PricingPage({ countryCode, signedInEmail }) {
 
 const token = localStorage.getItem('bayaa-token');
 fetch('/api/pricing-context', { headers: token ? { Authorization: `Bearer ${token}` } : {} })
-  .then((response) => response.ok ? response.json() : Promise.reject(new Error('Pricing context unavailable.')))
-  .then(({ countryCode, email }) => createRoot(document.getElementById('pricing-root')).render(<PricingPage countryCode={countryCode || undefined} signedInEmail={email || undefined} />))
-  .catch(() => createRoot(document.getElementById('pricing-root')).render(<PricingPage countryCode={undefined} signedInEmail={undefined} />));
+  .then((response) => response.ok ? response.json() : Promise.reject(new Error(`Pricing context unavailable (${response.status}).`)))
+  .then((config) => createRoot(document.getElementById('pricing-root')).render(<PricingPage config={config} countryCode={config.countryCode || undefined} signedInEmail={config.email || undefined} />))
+  .catch((error) => createRoot(document.getElementById('pricing-root')).render(<PricingPage config={null} countryCode={undefined} signedInEmail={undefined} />));
