@@ -1,12 +1,28 @@
+// BAYAA pricing build: force fresh Vite env injection.
 import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { initializePaddle } from '@paddle/paddle-js';
 import './styles.css';
 
 const tiers = [
-  { name: 'Starter', description: 'للبائعين الذين يبدأون البيع مع BAYAA.', features: ['إضافة المنتجات', 'لوحة بائع أساسية', 'تواصل مباشر مع المشترين'], priceId: { month: import.meta.env.BAYAA_PADDLE_STARTER_MONTH_PRICE_ID || '', year: import.meta.env.BAYAA_PADDLE_STARTER_YEAR_PRICE_ID || '' } },
-  { name: 'Pro', description: 'للبائعين النشطين الذين يريدون تكلفة عمولة أقل.', features: ['كل مزايا Starter', 'عمولة مخفضة', 'أولوية في أدوات البائع'], priceId: { month: import.meta.env.BAYAA_PADDLE_PRO_MONTH_PRICE_ID || '', year: import.meta.env.BAYAA_PADDLE_PRO_YEAR_PRICE_ID || '' } },
-  { name: 'Advanced', description: 'للبائعين ذوي حجم المبيعات المرتفع.', features: ['كل مزايا Pro', 'أقل عمولة', 'أولوية للدعم'], priceId: { month: import.meta.env.BAYAA_PADDLE_ADVANCED_MONTH_PRICE_ID || '', year: import.meta.env.BAYAA_PADDLE_ADVANCED_YEAR_PRICE_ID || '' } },
+  {
+    name: 'Starter',
+    description: 'للبائعين الذين يبدأون البيع مع BAYAA.',
+    features: ['إضافة المنتجات', 'لوحة بائع أساسية', 'تواصل مباشر مع المشترين'],
+    priceId: { month: import.meta.env.BAYAA_PADDLE_STARTER_MONTH_PRICE_ID || '', year: import.meta.env.BAYAA_PADDLE_STARTER_YEAR_PRICE_ID || '' },
+  },
+  {
+    name: 'Pro',
+    description: 'للبائعين النشطين الذين يريدون تكلفة عمولة أقل.',
+    features: ['كل مزايا Starter', 'عمولة مخفضة', 'أولوية في أدوات البائع'],
+    priceId: { month: import.meta.env.BAYAA_PADDLE_PRO_MONTH_PRICE_ID || '', year: import.meta.env.BAYAA_PADDLE_PRO_YEAR_PRICE_ID || '' },
+  },
+  {
+    name: 'Advanced',
+    description: 'للبائعين ذوي حجم المبيعات المرتفع.',
+    features: ['كل مزايا Pro', 'أقل عمولة', 'أولوية للدعم'],
+    priceId: { month: import.meta.env.BAYAA_PADDLE_ADVANCED_MONTH_PRICE_ID || '', year: import.meta.env.BAYAA_PADDLE_ADVANCED_YEAR_PRICE_ID || '' },
+  },
 ];
 
 const escapeHtml = (value) => String(value).replace(/[&<>\'\"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]);
@@ -68,7 +84,8 @@ function PricingPage({ countryCode, signedInEmail }) {
   const subscribe = (tier) => {
     if (!paddle) return;
     const priceId = tier.priceId[billing];
-    if (!priceId || !prices[priceId]) return;
+    const formattedTotals = prices[priceId];
+    if (!priceId || !formattedTotals) return;
     paddle.Checkout.open({
       items: [{ priceId, quantity: 1 }],
       settings: { displayMode: 'overlay', variant: 'one-page', successUrl: `${window.location.origin}/welcome` },
