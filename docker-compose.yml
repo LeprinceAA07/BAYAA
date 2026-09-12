@@ -1,0 +1,31 @@
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: 3000
+      DATABASE_URL: postgresql://bayaa:bayaa@db:5432/bayaa
+      DATABASE_SSL: "false"
+      JWT_SECRET: change-this-in-production
+      CLIENT_ORIGIN: http://localhost:3000
+    depends_on:
+      db:
+        condition: service_healthy
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: bayaa
+      POSTGRES_USER: bayaa
+      POSTGRES_PASSWORD: bayaa
+    ports:
+      - "5432:5432"
+    volumes:
+      - bayaa_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bayaa -d bayaa"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+volumes:
+  bayaa_pgdata:
