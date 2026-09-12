@@ -36,6 +36,25 @@ const productPatch = `app.patch('/api/products/:id', auth, sellerOnly, async (re
 
 `;
 
+const contactMigration = "app.get('/api/health', async (_req, res) => {";
+const contactPatch = `app.patch('/api/me/contact', auth, async (req, res) => {
+  if (!requireDb(res)) return;
+  const contactPhone = String(req.body?.contactPhone || '').trim();
+  const digits = contactPhone.replace(/\\D/g, '');
+  if (!/^\\d{8,15}$/.test(digits)) return res.status(400).json({ error: 'Enter a valid contact phone number.' });
+  try {
+    await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS contact_phone TEXT');
+    const result = await pool.query('UPDATE users SET contact_phone=$1 WHERE id=$2 RETURNING id,name,email,role,contact_phone', [digits, req.user.id]);
+    if (!result.rowCount) return res.status(404).json({ error: 'User not found.' });
+    res.json({ user: result.rows[0] });
+  } catch { res.status(500).json({ error: 'Could not save contact phone.' }); }
+});
+
+`;
+
+const productContactQuery = "SELECT id,seller_id,title,description,category,price,image_url,created_at FROM products WHERE ${where.join(' AND ')} ORDER BY created_at DESC";
+const productContactQueryPatched = "SELECT p.id,p.seller_id,p.title,p.description,p.category,p.price,p.image_url,p.created_at,u.contact_phone AS seller_phone FROM products p LEFT JOIN users u ON u.id=p.seller_id WHERE ${where.join(' AND ')} ORDER BY p.created_at DESC";
+
 const webhookInsertMarker = "app.use(express.json({ limit: '1mb' }));";
 const webhookPatch = `app.post('/api/webhooks/moosyl', express.raw({ type: 'application/json', limit: '1mb' }), async (req, res) => {
   const secret = process.env.MOOSYL_WEBHOOK_SECRET;
@@ -48,14 +67,9 @@ const webhookPatch = `app.post('/api/webhooks/moosyl', express.raw({ type: 'appl
   const expected = crypto.createHmac('sha256', secret).update(raw).digest('hex');
   const received = signature.slice(7);
   let valid = false;
-  try {
-    const a = Buffer.from(received, 'hex');
-    const b = Buffer.from(expected, 'hex');
-    valid = a.length === b.length && crypto.timingSafeEqual(a, b);
-  } catch { valid = false; }
+  try { const a = Buffer.from(received, 'hex'); const b = Buffer.from(expected, 'hex'); valid = a.length === b.length && crypto.timingSafeEqual(a, b); } catch { valid = false; }
   if (!valid) return res.status(401).json({ error: 'Invalid signature.' });
-  let payload;
-  try { payload = JSON.parse(raw.toString('utf8')); } catch { return res.status(400).json({ error: 'Invalid JSON.' }); }
+  let payload; try { payload = JSON.parse(raw.toString('utf8')); } catch { return res.status(400).json({ error: 'Invalid JSON.' }); }
   const event = String(payload?.event || eventHeader);
   const data = payload?.data || {};
   const allowed = new Set(['payment-created','payment-updated','payment-request-created','payment-request-updated']);
@@ -72,9 +86,7 @@ const webhookPatch = `app.post('/api/webhooks/moosyl', express.raw({ type: 'appl
     await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_reference TEXT');
     await pool.query('UPDATE orders SET payment_status=$1,payment_reference=COALESCE($2,payment_reference) WHERE payment_transaction_id=$3', [paymentStatus, reference, transactionId]);
     return res.json({ received: true });
-  } catch {
-    return res.status(500).json({ error: 'Webhook processing failed.' });
-  }
+  } catch { return res.status(500).json({ error: 'Webhook processing failed.' }); }
 });
 
 `;
@@ -87,33 +99,25 @@ const checkoutPatch = `app.post('/api/payments/checkout', auth, async (req, res)
   if (!Number.isFinite(amount) || amount <= 0 || !transactionId) return res.status(400).json({ error: 'Invalid payment data.' });
   try {
     const requestResponse = await fetch('https://api.moosyl.com/payment-request', {
-      method: 'POST',
-      headers: { Authorization: process.env.MOOSYL_SECRET_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ amount, transactionId }),
+      method: 'POST', headers: { Authorization: process.env.MOOSYL_SECRET_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ amount, transactionId }),
     });
     let requestData = await requestResponse.json().catch(() => ({}));
     if (!requestResponse.ok) {
-      const lookup = await fetch(\`https://api.moosyl.com/payment-request/transaction/\${encodeURIComponent(transactionId)}\`, {
-        headers: { Authorization: process.env.MOOSYL_SECRET_KEY },
-      });
+      const lookup = await fetch(\`https://api.moosyl.com/payment-request/transaction/\${encodeURIComponent(transactionId)}\`, { headers: { Authorization: process.env.MOOSYL_SECRET_KEY } });
       if (lookup.ok) requestData = await lookup.json().catch(() => ({}));
       else return res.status(requestResponse.status).json({ error: requestData?.error || 'Payment request failed.' });
     }
     const paymentRequestId = requestData?.data?.id || requestData?.id || requestData?.paymentRequestId;
     if (!paymentRequestId) return res.status(502).json({ error: 'Moosyl did not return a payment request ID.' });
     const checkoutResponse = await fetch('https://api.moosyl.com/checkout-session', {
-      method: 'POST',
-      headers: { Authorization: process.env.MOOSYL_SECRET_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ paymentRequestId }),
+      method: 'POST', headers: { Authorization: process.env.MOOSYL_SECRET_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ paymentRequestId }),
     });
     const checkoutData = await checkoutResponse.json().catch(() => ({}));
     if (!checkoutResponse.ok) return res.status(checkoutResponse.status).json({ error: checkoutData?.error || 'Checkout session creation failed.' });
     const checkoutUrl = checkoutData?.checkoutUrl || checkoutData?.data?.checkoutUrl || checkoutData?.url;
     if (!checkoutUrl) return res.status(502).json({ error: 'Moosyl did not return a checkout URL.' });
     res.status(201).json({ transactionId, paymentRequestId, checkoutUrl });
-  } catch {
-    res.status(502).json({ error: 'Payment provider is unavailable.' });
-  }
+  } catch { res.status(502).json({ error: 'Payment provider is unavailable.' }); }
 });
 
 `;
@@ -138,6 +142,8 @@ const orderPaymentPatch = `app.post('/api/orders', auth, async (req, res) => {
 
 const patched = source
   .replace(productMarker, (source.includes("app.patch('/api/products/:id'") ? '' : productPatch) + productMarker)
+  .replace(contactMigration, contactPatch + contactMigration)
+  .replace(productContactQuery, productContactQueryPatched)
   .replace(webhookInsertMarker, webhookPatch + webhookInsertMarker)
   .replace(orderPaymentMarker, (source.includes('payment_transaction_id') ? '' : orderPaymentPatch) + orderPaymentMarker)
   .replace(checkoutMarker, (source.includes("app.post('/api/payments/checkout'") ? '' : checkoutPatch) + checkoutMarker);
