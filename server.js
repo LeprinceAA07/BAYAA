@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import crypto from 'node:crypto';
 import express from 'express';
 import cors from 'cors';
 import bcrypt from 'bcryptjs';
@@ -13,7 +14,6 @@ const PORT = Number(process.env.PORT || 3000);
 const JWT_SECRET = process.env.JWT_SECRET || 'change-me-in-production';
 
 app.use(cors({ origin: process.env.CLIENT_ORIGIN ? process.env.CLIENT_ORIGIN.split(',').map(s => s.trim()) : true }));
-app.use(express.json({ limit: '1mb' }));
 
 const pool = process.env.DATABASE_URL
   ? new Pool({ connectionString: process.env.DATABASE_URL, ssl: process.env.DATABASE_SSL === 'false' ? false : { rejectUnauthorized: false } })
@@ -26,6 +26,61 @@ const requireDb = (res) => {
   }
   return true;
 };
+
+const webhookSignatureIsValid = (payload, signature, secret) => {
+  if (!secret || !signature || !signature.startsWith('sha256=')) return false;
+  const receivedHex = signature.slice(7);
+  if (!/^[a-f0-9]{64}$/i.test(receivedHex)) return false;
+  const expected = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+  return crypto.timingSafeEqual(Buffer.from(receivedHex, 'hex'), Buffer.from(expected, 'hex'));
+};
+
+// Moosyl webhook must receive the raw request body so HMAC-SHA256 verification is correct.
+app.post('/api/webhooks/moosyl', express.raw({ type: 'application/json', limit: '1mb' }), async (req, res) => {
+  const secret = process.env.MOOSYL_WEBHOOK_SECRET;
+  if (!secret) return res.status(503).json({ error: 'Webhook secret is not configured.' });
+  if (!webhookSignatureIsValid(req.body, req.headers['x-webhook-signature'], secret)) {
+    return res.status(401).json({ error: 'Invalid webhook signature.' });
+  }
+  if (!requireDb(res)) return;
+
+  let envelope;
+  try { envelope = JSON.parse(req.body.toString('utf8')); }
+  catch { return res.status(400).json({ error: 'Invalid JSON payload.' }); }
+
+  const event = String(envelope?.event || req.headers['x-webhook-event'] || '').trim();
+  const allowedEvents = new Set(['payment-request-created', 'payment-request-updated', 'payment-created', 'payment-updated']);
+  if (!allowedEvents.has(event)) return res.status(400).json({ error: 'Unsupported webhook event.' });
+  if (req.headers['x-webhook-event'] && String(req.headers['x-webhook-event']) !== event) {
+    return res.status(400).json({ error: 'Webhook event mismatch.' });
+  }
+
+  const data = envelope?.data || {};
+  const transactionId = String(data.transactionId || data.request?.transactionId || '').trim();
+  if (!transactionId) return res.status(200).json({ received: true, ignored: true });
+
+  const status = String(data.status || data.request?.status || '').trim().toLowerCase();
+  const referenceId = String(data.referenceId || '').trim() || null;
+  const completed = new Set(['completed', 'paid', 'success', 'succeeded']).has(status);
+  const failed = new Set(['failed', 'cancelled', 'canceled', 'rejected', 'declined', 'expired']).has(status);
+
+  try {
+    const result = await pool.query(
+      `UPDATE orders
+       SET payment_status=$1,
+           payment_reference=COALESCE($2,payment_reference),
+           status=CASE WHEN $3 THEN 'جديد' ELSE status END
+       WHERE transaction_id=$4
+       RETURNING id,status,payment_status,payment_reference`,
+      [completed ? 'completed' : failed ? 'failed' : (status || 'pending'), referenceId, completed, transactionId]
+    );
+    return res.status(200).json({ received: true, matched: Boolean(result.rowCount) });
+  } catch {
+    return res.status(500).json({ error: 'Could not process webhook.' });
+  }
+});
+
+app.use(express.json({ limit: '1mb' }));
 
 const auth = async (req, res, next) => {
   const token = req.headers.authorization?.replace('Bearer ', '');
@@ -75,6 +130,9 @@ const initDb = async () => {
       total NUMERIC(12,2) NOT NULL,
       status TEXT NOT NULL DEFAULT 'جديد',
       payment_method TEXT NOT NULL DEFAULT 'cod',
+      transaction_id TEXT UNIQUE,
+      payment_status TEXT NOT NULL DEFAULT 'not_required',
+      payment_reference TEXT,
       items JSONB NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
@@ -85,6 +143,24 @@ const initDb = async () => {
         WHERE table_name='orders' AND column_name='payment_method'
       ) THEN
         ALTER TABLE orders ADD COLUMN payment_method TEXT NOT NULL DEFAULT 'cod';
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name='orders' AND column_name='transaction_id'
+      ) THEN
+        ALTER TABLE orders ADD COLUMN transaction_id TEXT UNIQUE;
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name='orders' AND column_name='payment_status'
+      ) THEN
+        ALTER TABLE orders ADD COLUMN payment_status TEXT NOT NULL DEFAULT 'not_required';
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name='orders' AND column_name='payment_reference'
+      ) THEN
+        ALTER TABLE orders ADD COLUMN payment_reference TEXT;
       END IF;
     END $$;
   `);
@@ -159,6 +235,26 @@ app.post('/api/products', auth, sellerOnly, async (req, res) => {
   } catch { res.status(500).json({ error: 'Could not create product.' }); }
 });
 
+app.patch('/api/products/:id', auth, sellerOnly, async (req, res) => {
+  if (!requireDb(res)) return;
+  const { title, description, category, price, imageUrl } = req.body || {};
+  const updates = [];
+  const values = [];
+  let paramCount = 1;
+  if (title !== undefined) { const trimmed = String(title).trim(); if (!trimmed) return res.status(400).json({ error: 'Title cannot be empty.' }); updates.push(`title = $${paramCount++}`); values.push(trimmed); }
+  if (description !== undefined) { updates.push(`description = $${paramCount++}`); values.push(String(description).trim()); }
+  if (category !== undefined) { const trimmed = String(category).trim(); if (!trimmed) return res.status(400).json({ error: 'Category cannot be empty.' }); updates.push(`category = $${paramCount++}`); values.push(trimmed); }
+  if (price !== undefined) { const numericPrice = Number(price); if (!Number.isFinite(numericPrice) || numericPrice <= 0) return res.status(400).json({ error: 'Price must be a positive number.' }); updates.push(`price = $${paramCount++}`); values.push(numericPrice); }
+  if (imageUrl !== undefined) { updates.push(`image_url = $${paramCount++}`); values.push(String(imageUrl).trim()); }
+  if (!updates.length) return res.status(400).json({ error: 'No fields to update.' });
+  values.push(req.params.id, req.user.id);
+  try {
+    const result = await pool.query(`UPDATE products SET ${updates.join(', ')} WHERE id = $${paramCount++} AND seller_id = $${paramCount++} RETURNING id,seller_id,title,description,category,price,image_url,active,created_at`, values);
+    if (!result.rowCount) return res.status(404).json({ error: 'Product not found.' });
+    res.json({ product: result.rows[0] });
+  } catch { res.status(500).json({ error: 'Could not update product.' }); }
+});
+
 app.delete('/api/products/:id', auth, sellerOnly, async (req, res) => {
   if (!requireDb(res)) return;
   try {
@@ -173,8 +269,13 @@ app.post('/api/orders', auth, async (req, res) => {
   const { customerName, phone, city, address, items, total, paymentMethod = 'cod' } = req.body || {};
   const allowedPaymentMethods = new Set(['cod','bankily','sedad','masrivi']);
   if (!customerName?.trim() || !phone?.trim() || !city?.trim() || !address?.trim() || !Array.isArray(items) || !items.length || !Number.isFinite(Number(total)) || !allowedPaymentMethods.has(paymentMethod)) return res.status(400).json({ error: 'Invalid order data.' });
+  const transactionId = paymentMethod === 'cod' ? null : `BAYAA-${req.user.id}-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+  const paymentStatus = paymentMethod === 'cod' ? 'not_required' : 'pending';
   try {
-    const result = await pool.query('INSERT INTO orders (buyer_id,customer_name,phone,city,address,total,status,payment_method,items) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id,status,payment_method,total,created_at', [req.user.id, customerName.trim(), phone.trim(), city.trim(), address.trim(), Number(total), paymentMethod === 'cod' ? 'جديد' : 'بانتظار الدفع', paymentMethod, JSON.stringify(items)]);
+    const result = await pool.query(
+      'INSERT INTO orders (buyer_id,customer_name,phone,city,address,total,status,payment_method,transaction_id,payment_status,items) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id,status,payment_method,transaction_id,payment_status,total,created_at',
+      [req.user.id, customerName.trim(), phone.trim(), city.trim(), address.trim(), Number(total), paymentMethod === 'cod' ? 'جديد' : 'بانتظار الدفع', paymentMethod, transactionId, paymentStatus, JSON.stringify(items)]
+    );
     res.status(201).json({ order: result.rows[0] });
   } catch { res.status(500).json({ error: 'Could not create order.' }); }
 });
@@ -182,7 +283,7 @@ app.post('/api/orders', auth, async (req, res) => {
 app.get('/api/orders/mine', auth, async (req, res) => {
   if (!requireDb(res)) return;
   try {
-    const result = await pool.query('SELECT id,status,payment_method,total,customer_name,phone,city,address,items,created_at FROM orders WHERE buyer_id=$1 ORDER BY created_at DESC', [req.user.id]);
+    const result = await pool.query('SELECT id,status,payment_method,transaction_id,payment_status,payment_reference,total,customer_name,phone,city,address,items,created_at FROM orders WHERE buyer_id=$1 ORDER BY created_at DESC', [req.user.id]);
     res.json({ orders: result.rows });
   } catch { res.status(500).json({ error: 'Could not load orders.' }); }
 });
@@ -190,7 +291,7 @@ app.get('/api/orders/mine', auth, async (req, res) => {
 app.get('/api/seller/orders', auth, sellerOnly, async (req, res) => {
   if (!requireDb(res)) return;
   try {
-    const result = await pool.query(`SELECT o.id,o.status,o.payment_method,o.total,o.customer_name,o.city,o.created_at,o.items FROM orders o WHERE EXISTS (SELECT 1 FROM jsonb_array_elements(o.items) item WHERE item->>'sellerId' = $1) ORDER BY o.created_at DESC`, [String(req.user.id)]);
+    const result = await pool.query(`SELECT o.id,o.status,o.payment_method,o.transaction_id,o.payment_status,o.payment_reference,o.total,o.customer_name,o.city,o.created_at,o.items FROM orders o WHERE EXISTS (SELECT 1 FROM jsonb_array_elements(o.items) item WHERE item->>'sellerId' = $1) ORDER BY o.created_at DESC`, [String(req.user.id)]);
     res.json({ orders: result.rows });
   } catch { res.status(500).json({ error: 'Could not load seller orders.' }); }
 });
@@ -203,7 +304,7 @@ app.patch('/api/seller/orders/:id/status', auth, sellerOnly, async (req, res) =>
   try {
     const ownership = await pool.query(`SELECT o.id FROM orders o WHERE o.id=$1 AND EXISTS (SELECT 1 FROM jsonb_array_elements(o.items) item WHERE item->>'sellerId' = $2)`, [req.params.id, String(req.user.id)]);
     if (!ownership.rowCount) return res.status(404).json({ error: 'Order not found.' });
-    const result = await pool.query('UPDATE orders SET status=$1 WHERE id=$2 RETURNING id,status,payment_method,total,created_at', [status, req.params.id]);
+    const result = await pool.query('UPDATE orders SET status=$1 WHERE id=$2 RETURNING id,status,payment_method,payment_status,total,created_at', [status, req.params.id]);
     res.json({ order: result.rows[0] });
   } catch { res.status(500).json({ error: 'Could not update order status.' }); }
 });
@@ -223,9 +324,7 @@ app.post('/api/payments/create', auth, async (req, res) => {
     const data = await response.json().catch(() => ({}));
     if (!response.ok) return res.status(response.status).json({ error: data?.error || 'Payment request failed.' });
     res.status(201).json({ transactionId: data.transactionId || transactionId });
-  } catch {
-    res.status(502).json({ error: 'Payment provider is unavailable.' });
-  }
+  } catch { res.status(502).json({ error: 'Payment provider is unavailable.' }); }
 });
 
 const __filename = fileURLToPath(import.meta.url);
