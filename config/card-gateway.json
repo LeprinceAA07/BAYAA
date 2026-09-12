@@ -1,0 +1,22 @@
+{
+  "provider": "gimtel-hosted-checkout",
+  "environment": "production",
+  "description": "Hosted card checkout adapter placeholder. Production API details are supplied by the acquiring bank/GIMTEL after merchant affiliation.",
+  "supportedNetworks": ["VISA", "MASTERCARD"],
+  "requires3DS": true,
+  "credentials": {
+    "merchantId": "CARD_GATEWAY_MERCHANT_ID",
+    "apiBaseUrl": "CARD_GATEWAY_API_BASE_URL",
+    "username": "CARD_GATEWAY_USERNAME",
+    "password": "CARD_GATEWAY_PASSWORD"
+  },
+  "callbacks": {
+    "returnUrl": "https://bayaa-production-30f4.up.railway.app/seller-billing.html",
+    "webhookPath": "/api/webhooks/card-gateway"
+  },
+  "notes": [
+    "Do not commit real gateway credentials.",
+    "The exact production request/response contract must come from the acquiring bank/GIMTEL integration pack.",
+    "The buyer-to-seller marketplace flow must remain separate from seller billing."
+  ]
+}
