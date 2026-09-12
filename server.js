@@ -193,8 +193,8 @@ app.get('/api/me', auth, async (req, res) => {
 app.patch('/api/me/contact', auth, async (req, res) => {
   if (!requireDb(res)) return;
   const contactPhone = String(req.body?.contactPhone || '').trim();
-  const digits = contactPhone.replace(/\D/g, '');
-  if (!/^\d{8,15}$/.test(digits)) return res.status(400).json({ error: 'Enter a valid contact phone number.' });
+  const digits = contactPhone.replace(/\\D/g, '');
+  if (!/^\\d{8,15}$/.test(digits)) return res.status(400).json({ error: 'Enter a valid contact phone number.' });
   try {
     const result = await pool.query('UPDATE users SET contact_phone=$1 WHERE id=$2 RETURNING id,name,email,role,contact_phone', [digits, req.user.id]);
     res.json({ user: result.rows[0] });
@@ -361,6 +361,25 @@ app.post('/api/payments/checkout', auth, async (req, res) => {
   } catch { res.status(502).json({ error: 'Payment provider is unavailable.' }); }
 });
 
+app.get('/api/pricing-context', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const countryCodeRaw = req.headers['x-vercel-ip-country'];
+  let countryCode;
+  if (countryCodeRaw && /^[A-Z]{2}$/.test(String(countryCodeRaw))) {
+    countryCode = String(countryCodeRaw);
+  }
+  const authHeader = req.headers.authorization || '';
+  let email;
+  if (authHeader.startsWith('Bearer ')) {
+    const token = authHeader.slice(7);
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET);
+      email = decoded.email;
+    } catch {}
+  }
+  res.json({ countryCode, email });
+});
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const dist = path.join(__dirname, 'dist');
@@ -371,3 +390,4 @@ app.use((req, res, next) => {
 });
 
 initDb().then(() => app.listen(PORT, () => console.log(`BAYAA server listening on ${PORT}`))).catch(err => { console.error(err); process.exit(1); });
+
