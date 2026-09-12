@@ -8,10 +8,7 @@
   const loadPaddle = async (environment, clientToken) => {
     if (window.Paddle) {
       if (environment === 'sandbox' && window.Paddle.Environment?.set) window.Paddle.Environment.set('sandbox');
-      if (!paddleReady) {
-        window.Paddle.Initialize({ token: clientToken });
-        paddleReady = true;
-      }
+      if (!paddleReady) { window.Paddle.Initialize({ token: clientToken }); paddleReady = true; }
       return;
     }
     await new Promise((resolve, reject) => {
@@ -33,7 +30,12 @@
     return data;
   };
 
-  const boot = async () => {
+  const renderButton = (root) => {
+    root.innerHTML = '<button class="bbw-btn">💳 اشتراك البائع</button>';
+    root.querySelector('.bbw-btn').onclick = openBilling;
+  };
+
+  const boot = () => {
     if (!isSeller() || document.getElementById('bayaa-billing-widget')) return;
     const style = document.createElement('style');
     style.textContent = `
@@ -55,12 +57,11 @@
 
     const root = document.createElement('div');
     root.id = 'bayaa-billing-widget';
-    root.innerHTML = '<button class="bbw-btn">💳 اشتراك البائع</button>';
     document.body.appendChild(root);
 
-    root.querySelector('.bbw-btn').onclick = async () => {
+    async function openBilling() {
       root.innerHTML = '<div class="bbw-backdrop"><div class="bbw-modal"><div class="bbw-head"><h2>اشتراك البائع</h2><button class="bbw-close">×</button></div><p class="bbw-muted">جاري تحميل إعدادات الدفع...</p></div></div>';
-      root.querySelector('.bbw-close').onclick = () => { root.innerHTML = '<button class="bbw-btn">💳 اشتراك البائع</button>'; root.querySelector('.bbw-btn').onclick = arguments.callee; };
+      root.querySelector('.bbw-close').onclick = () => renderButton(root);
       try {
         const summary = await request('/api/seller/billing/summary');
         const config = await request('/api/seller/billing/paddle-config');
@@ -83,7 +84,7 @@
             <div class="bbw-plan"><strong>Business</strong><small>عمولة BAYAA: 2%<br>اشتراك شهري عبر Paddle</small><button data-plan="business">الاشتراك الآن</button></div>
           </div>
           <p class="bbw-muted" style="margin-top:14px">الدفع هنا خاص بالبائع فقط. المشتري لا يدفع لـBAYAA.</p>`;
-        root.querySelector('.bbw-close').onclick = () => { root.remove(); };
+        root.querySelector('.bbw-close').onclick = () => root.remove();
         root.querySelectorAll('[data-plan]').forEach((button) => button.onclick = async () => {
           button.disabled = true;
           try { await openCheckout(button.dataset.plan); } catch (error) { alert(error.message); } finally { button.disabled = false; }
@@ -92,7 +93,9 @@
         root.querySelector('.bbw-modal').innerHTML = `<div class="bbw-head"><h2>اشتراك البائع</h2><button class="bbw-close">×</button></div><p>${error.message}</p><p class="bbw-muted">أكمل إعداد Paddle Sandbox ثم أضف PADDLE_CLIENT_TOKEN وPrice IDs وWebhook Secret في Railway.</p>`;
         root.querySelector('.bbw-close').onclick = () => root.remove();
       }
-    };
+    }
+
+    renderButton(root);
   };
 
   const refresh = () => {
