@@ -137,6 +137,34 @@ const orderPaymentPatch = `app.post('/api/orders', auth, async (req, res) => {
 
 `;
 
+const pricingMarker = "const __filename = fileURLToPath(import.meta.url);";
+const pricingPatch = `app.get('/api/pricing-context', (req, res) => {
+  const countryHeader = String(req.headers['x-vercel-ip-country'] || req.headers['cf-ipcountry'] || '').trim().toUpperCase();
+  const countryCode = /^[A-Z]{2}$/.test(countryHeader) ? countryHeader : null;
+  res.json({
+    environment: process.env.BAYAA_PADDLE_ENVIRONMENT || '',
+    clientToken: process.env.BAYAA_PADDLE_CLIENT_TOKEN || '',
+    countryCode,
+    email: null,
+    priceIds: {
+      Starter: {
+        month: process.env.BAYAA_PADDLE_STARTER_MONTH_PRICE_ID || '',
+        year: process.env.BAYAA_PADDLE_STARTER_YEAR_PRICE_ID || '',
+      },
+      Pro: {
+        month: process.env.BAYAA_PADDLE_PRO_MONTH_PRICE_ID || '',
+        year: process.env.BAYAA_PADDLE_PRO_YEAR_PRICE_ID || '',
+      },
+      Advanced: {
+        month: process.env.BAYAA_PADDLE_ADVANCED_MONTH_PRICE_ID || '',
+        year: process.env.BAYAA_PADDLE_ADVANCED_YEAR_PRICE_ID || '',
+      },
+    },
+  });
+});
+
+`;
+
 const sellerBillingPatch = await fs.readFile(new URL('./seller-billing.patch.mjs', import.meta.url), 'utf8');
 const staticMarker = 'const __filename = fileURLToPath(import.meta.url);';
 
@@ -147,7 +175,7 @@ const patched = source
   .replace(webhookInsertMarker, webhookPatch + webhookInsertMarker)
   .replace(orderPaymentMarker, (source.includes('payment_transaction_id') ? '' : orderPaymentPatch) + orderPaymentMarker)
   .replace(checkoutMarker, (source.includes("app.post('/api/payments/checkout'") ? '' : checkoutPatch) + checkoutMarker)
-  .replace(staticMarker, sellerBillingPatch + '\n' + staticMarker);
+  .replace(staticMarker, pricingPatch + sellerBillingPatch + '\n' + staticMarker);
 const temp = new URL('../.bayaa-runtime-server.mjs', import.meta.url);
 await fs.writeFile(temp, patched, 'utf8');
 await import(`${temp.href}?v=${Date.now()}`);
