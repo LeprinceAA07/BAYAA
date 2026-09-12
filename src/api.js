@@ -17,6 +17,7 @@ export const api = {
   me: () => request('/api/me'),
   products: (params = {}) => request(`/api/products?${new URLSearchParams(params).toString()}`),
   createProduct: (payload) => request('/api/products', { method: 'POST', body: JSON.stringify(payload) }),
+  updateProduct: (id, payload) => request(`/api/products/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   deleteProduct: (id) => request(`/api/products/${id}`, { method: 'DELETE' }),
   createOrder: (payload) => request('/api/orders', { method: 'POST', body: JSON.stringify(payload) }),
   myOrders: () => request('/api/orders/mine'),
@@ -34,3 +35,53 @@ export const clearApiSession = () => {
   localStorage.removeItem('bayaa-token');
   localStorage.removeItem('bayaa-session');
 };
+
+/**
+ * Compress image file to JPEG base64 data URL.
+ * Scales down if needed and compresses to ~80% quality.
+ * Max output: ~200KB base64 encoded.
+ */
+export const compressImageToDataUrl = async (file) => {
+  if (!file || !file.type.startsWith('image/')) {
+    throw new Error('Invalid image file.');
+  }
+  
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let { width, height } = img;
+        
+        // Scale down if larger than 1200px on longest side
+        const maxDim = 1200;
+        if (width > maxDim || height > maxDim) {
+          const ratio = Math.min(maxDim / width, maxDim / height);
+          width = Math.round(width * ratio);
+          height = Math.round(height * ratio);
+        }
+        
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        // Compress to JPEG with 80% quality
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+        
+        // Validate size (base64 should fit in 1mb payload limit with product data)
+        if (dataUrl.length > 800000) {
+          return reject(new Error('Compressed image is too large. Try a smaller file.'));
+        }
+        
+        resolve(dataUrl);
+      };
+      img.onerror = () => reject(new Error('Failed to load image.'));
+      img.src = e.target.result;
+    };
+    reader.onerror = () => reject(new Error('Failed to read file.'));
+    reader.readAsDataURL(file);
+  });
+};
+

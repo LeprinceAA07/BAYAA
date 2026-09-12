@@ -159,6 +159,52 @@ app.post('/api/products', auth, sellerOnly, async (req, res) => {
   } catch { res.status(500).json({ error: 'Could not create product.' }); }
 });
 
+app.patch('/api/products/:id', auth, sellerOnly, async (req, res) => {
+  if (!requireDb(res)) return;
+  const { title, description, category, price, imageUrl } = req.body || {};
+  const updates = [];
+  const values = [];
+  let paramCount = 1;
+  
+  if (title !== undefined) {
+    const trimmed = String(title).trim();
+    if (!trimmed) return res.status(400).json({ error: 'Title cannot be empty.' });
+    updates.push(`title = $${paramCount++}`);
+    values.push(trimmed);
+  }
+  if (description !== undefined) {
+    updates.push(`description = $${paramCount++}`);
+    values.push(String(description).trim());
+  }
+  if (category !== undefined) {
+    const trimmed = String(category).trim();
+    if (!trimmed) return res.status(400).json({ error: 'Category cannot be empty.' });
+    updates.push(`category = $${paramCount++}`);
+    values.push(trimmed);
+  }
+  if (price !== undefined) {
+    const numericPrice = Number(price);
+    if (!Number.isFinite(numericPrice) || numericPrice <= 0) return res.status(400).json({ error: 'Price must be a positive number.' });
+    updates.push(`price = $${paramCount++}`);
+    values.push(numericPrice);
+  }
+  if (imageUrl !== undefined) {
+    updates.push(`image_url = $${paramCount++}`);
+    values.push(String(imageUrl).trim());
+  }
+  
+  if (!updates.length) return res.status(400).json({ error: 'No fields to update.' });
+  
+  values.push(req.params.id);
+  values.push(req.user.id);
+  
+  try {
+    const result = await pool.query(`UPDATE products SET ${updates.join(', ')} WHERE id = $${paramCount++} AND seller_id = $${paramCount++} RETURNING id,seller_id,title,description,category,price,image_url,active,created_at`, values);
+    if (!result.rowCount) return res.status(404).json({ error: 'Product not found.' });
+    res.json({ product: result.rows[0] });
+  } catch { res.status(500).json({ error: 'Could not update product.' }); }
+});
+
 app.delete('/api/products/:id', auth, sellerOnly, async (req, res) => {
   if (!requireDb(res)) return;
   try {
@@ -238,3 +284,4 @@ app.use((req, res, next) => {
 });
 
 initDb().then(() => app.listen(PORT, () => console.log(`BAYAA server listening on ${PORT}`))).catch(err => { console.error(err); process.exit(1); });
+

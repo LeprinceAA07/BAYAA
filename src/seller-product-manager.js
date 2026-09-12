@@ -1,3 +1,5 @@
+import { api, compressImageToDataUrl } from './api.js';
+
 const token = () => localStorage.getItem('bayaa-token');
 const request = async (path, options = {}) => {
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
@@ -8,4 +10,8 @@ const request = async (path, options = {}) => {
   return data;
 };
 
-window.bayaaProductManager = { update: (id, payload) => request(`/api/products/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }) };
+window.bayaaProductManager = {
+  update: (id, payload) => api.updateProduct(id, payload),
+  compressImage: (file) => compressImageToDataUrl(file),
+};
+
