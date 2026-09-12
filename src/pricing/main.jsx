@@ -125,8 +125,22 @@ function PricingPage({ config, countryCode, signedInEmail }) {
   );
 }
 
+const decodeSignedInEmail = (jwt) => {
+  try {
+    const payload = jwt.split('.')[1];
+    if (!payload) return undefined;
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const decoded = JSON.parse(atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=')));
+    const email = String(decoded?.email || '').trim();
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
 const token = localStorage.getItem('bayaa-token');
+const signedInEmail = decodeSignedInEmail(token || '');
 fetch('/api/pricing-context', { headers: token ? { Authorization: `Bearer ${token}` } : {} })
   .then((response) => response.ok ? response.json() : Promise.reject(new Error(`Pricing context unavailable (${response.status}).`)))
-  .then((config) => createRoot(document.getElementById('pricing-root')).render(<PricingPage config={config} countryCode={config.countryCode || undefined} signedInEmail={config.email || undefined} />))
-  .catch((error) => createRoot(document.getElementById('pricing-root')).render(<PricingPage config={null} countryCode={undefined} signedInEmail={undefined} />));
+  .then((config) => createRoot(document.getElementById('pricing-root')).render(<PricingPage config={config} countryCode={config.countryCode || undefined} signedInEmail={signedInEmail || config.email || undefined} />))
+  .catch((error) => createRoot(document.getElementById('pricing-root')).render(<PricingPage config={null} countryCode={undefined} signedInEmail={signedInEmail} />));
