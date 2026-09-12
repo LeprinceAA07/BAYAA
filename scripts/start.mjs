@@ -67,7 +67,7 @@ const webhookPatch = `app.post('/api/webhooks/moosyl', require('express').raw({ 
   const reference = String(data?.referenceId || '').trim() || null;
   try {
     await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_transaction_id TEXT');
-    await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_status TEXT NOT NULL DEFAULT \'pending\'');
+    await pool.query("ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_status TEXT NOT NULL DEFAULT 'pending'");
     await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_reference TEXT');
     await pool.query('UPDATE orders SET payment_status=$1,payment_reference=COALESCE($2,payment_reference) WHERE payment_transaction_id=$3', [paymentStatus, reference, transactionId]);
     return res.json({ received: true });
