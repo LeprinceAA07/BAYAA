@@ -12,11 +12,11 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+    <script type="module" src="/src/seller-orders-panel.js"></script>
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
       }
     </script>
-    <script src="/seller-orders.js" defer></script>
   </body>
 </html>
