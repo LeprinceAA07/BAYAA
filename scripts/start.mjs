@@ -128,7 +128,7 @@ const orderPaymentPatch = `app.post('/api/orders', auth, async (req, res) => {
   const { customerName, phone, city, address, items, total } = req.body || {};
   if (!customerName?.trim() || !phone?.trim() || !city?.trim() || !address?.trim() || !Array.isArray(items) || !items.length || !Number.isFinite(Number(total))) return res.status(400).json({ error: 'Complete your contact and delivery details.' });
   try {
-    await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_status TEXT NOT NULL DEFAULT \'not_required\'');
+    await pool.query("ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_status TEXT NOT NULL DEFAULT 'not_required'");
     await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_method TEXT');
     const result = await pool.query('INSERT INTO orders (buyer_id,customer_name,phone,city,address,total,status,payment_method,payment_status,items) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id,status,payment_method,payment_status,total,created_at', [req.user.id, customerName.trim(), phone.trim(), city.trim(), address.trim(), Number(total), 'طلب تواصل مع البائع', 'contact', 'not_required', JSON.stringify(items)]);
     res.status(201).json({ order: result.rows[0] });
