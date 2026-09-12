@@ -184,6 +184,26 @@ app.get('/api/seller/orders', auth, sellerOnly, async (req, res) => {
   } catch { res.status(500).json({ error: 'Could not load seller orders.' }); }
 });
 
+// Moosyl payment initiation. Secret key must stay on the server; never expose it to the browser.
+app.post('/api/payments/create', auth, async (req, res) => {
+  if (!process.env.MOOSYL_SECRET_KEY) return res.status(503).json({ error: 'Payment provider is not configured yet.' });
+  const amount = Number(req.body?.amount);
+  const transactionId = String(req.body?.transactionId || '').trim();
+  if (!Number.isFinite(amount) || amount <= 0 || !transactionId) return res.status(400).json({ error: 'Invalid payment data.' });
+  try {
+    const response = await fetch('https://api.moosyl.com/payment-request', {
+      method: 'POST',
+      headers: { Authorization: process.env.MOOSYL_SECRET_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amount, transactionId }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) return res.status(response.status).json({ error: data?.error || 'Payment request failed.' });
+    res.status(201).json({ transactionId: data.transactionId || transactionId });
+  } catch {
+    res.status(502).json({ error: 'Payment provider is unavailable.' });
+  }
+});
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const dist = path.join(__dirname, 'dist');
