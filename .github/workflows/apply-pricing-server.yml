@@ -1,0 +1,59 @@
+name: Apply pricing server route
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor == 'github-actions[bot]' || github.event.head_commit.message != 'chore: apply pricing server route'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch server and environment template
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('server.js')
+          s = p.read_text()
+          marker = "app.use(express.static(dist));"
+          route = r'''
+app.get('/api/pricing-context', async (req, res) => {
+  const rawCountry = String(req.headers['x-vercel-ip-country'] || '').trim().toUpperCase();
+  const countryCode = /^[A-Z]{2}$/.test(rawCountry) ? rawCountry : undefined;
+  let email;
+  const token = req.headers.authorization?.replace(/^Bearer\\s+/i, '');
+  if (token) {
+    try { email = jwt.verify(token, JWT_SECRET)?.email || undefined; } catch {}
+  }
+  res.set('Cache-Control', 'no-store');
+  res.json({ countryCode, email });
+});
+
+'''
+          if "app.get('/api/pricing-context'" not in s:
+            if marker not in s:
+              raise SystemExit('static marker not found')
+            s = s.replace(marker, route + marker, 1)
+            p.write_text(s)
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet; then
+            exit 0
+          fi
+          git add server.js
+          git commit -m "chore: apply pricing server route"
+          git push
+      - name: Remove one-shot workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -f .github/workflows/apply-pricing-server.yml
+          git commit -m "chore: remove one-shot pricing workflow"
+          git push
