@@ -130,13 +130,21 @@ app.get('/api/products', async (req, res) => {
   } catch { res.status(500).json({ error: 'Could not load products.' }); }
 });
 
+app.get('/api/products/mine', auth, sellerOnly, async (req, res) => {
+  if (!requireDb(res)) return;
+  try {
+    const result = await pool.query('SELECT id,seller_id,title,description,category,price,image_url,active,created_at FROM products WHERE seller_id=$1 ORDER BY created_at DESC', [req.user.id]);
+    res.json({ products: result.rows });
+  } catch { res.status(500).json({ error: 'Could not load seller products.' }); }
+});
+
 app.post('/api/products', auth, sellerOnly, async (req, res) => {
   if (!requireDb(res)) return;
   const { title, description = '', category, price, imageUrl = '' } = req.body || {};
   const numericPrice = Number(price);
   if (!title?.trim() || !category || !Number.isFinite(numericPrice) || numericPrice <= 0) return res.status(400).json({ error: 'Invalid product data.' });
   try {
-    const result = await pool.query('INSERT INTO products (seller_id,title,description,category,price,image_url) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *', [req.user.id, title.trim(), description.trim(), category, numericPrice, imageUrl.trim()]);
+    const result = await pool.query('INSERT INTO products (seller_id,title,description,category,price,image_url) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id,seller_id,title,description,category,price,image_url,active,created_at', [req.user.id, title.trim(), description.trim(), category, numericPrice, imageUrl.trim()]);
     res.status(201).json({ product: result.rows[0] });
   } catch { res.status(500).json({ error: 'Could not create product.' }); }
 });
@@ -180,6 +188,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const dist = path.join(__dirname, 'dist');
 app.use(express.static(dist));
-app.get('*', (_req, res) => res.sendFile(path.join(dist, 'index.html')));
+app.use((req, res, next) => {
+  if (req.method === 'GET' && !req.path.startsWith('/api/')) return res.sendFile(path.join(dist, 'index.html'));
+  next();
+});
 
 initDb().then(() => app.listen(PORT, () => console.log(`BAYAA server listening on ${PORT}`))).catch(err => { console.error(err); process.exit(1); });
