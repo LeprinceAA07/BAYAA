@@ -25,7 +25,6 @@
 
     const session = () => { try { return JSON.parse(localStorage.getItem('bayaa-session') || 'null'); } catch { return null; } };
     const token = () => localStorage.getItem('bayaa-token');
-    const paymentLabel = { cod: 'الدفع عند الاستلام', bankily: 'Bankily', sedad: 'Sedad', masrivi: 'Masrivi' };
 
     const renderButton = () => {
       if (!token() || !session()) { root.innerHTML = ''; return; }
@@ -45,7 +44,7 @@
         const body = orders.length ? orders.map(o => `
           <article class="bow-order">
             <div class="bow-row"><strong>طلب #${o.id}</strong><span class="bow-status">${o.status}</span></div>
-            <div class="bow-row bow-muted" style="margin-top:8px"><span>طريقة الدفع: ${paymentLabel[o.payment_method] || o.payment_method || 'غير محددة'}</span><span>الإجمالي: ${Number(o.total).toLocaleString('ar-MR')} MRU</span></div>
+            <div class="bow-row bow-muted" style="margin-top:8px"><span>نوع الطلب: طلب تواصل مباشر</span><span>الإجمالي: ${Number(o.total).toLocaleString('ar-MR')} MRU</span></div>
             <div class="bow-muted" style="margin-top:6px">${o.city || ''} — ${o.address || ''}</div>
           </article>`).join('') : `<div class="bow-empty">لا توجد طلبات حتى الآن.</div>`;
         root.querySelector('.bow-modal').innerHTML = `<div class="bow-head"><h2 style="margin:0">طلباتي</h2><button class="bow-close" type="button">×</button></div>${body}`;
