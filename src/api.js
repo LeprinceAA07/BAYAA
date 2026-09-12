@@ -17,12 +17,14 @@ export const api = {
   me: () => request('/api/me'),
   products: (params = {}) => request(`/api/products?${new URLSearchParams(params).toString()}`),
   createProduct: (payload) => request('/api/products', { method: 'POST', body: JSON.stringify(payload) }),
+  updateProduct: (id, payload) => request(`/api/products/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   deleteProduct: (id) => request(`/api/products/${id}`, { method: 'DELETE' }),
   createOrder: (payload) => request('/api/orders', { method: 'POST', body: JSON.stringify(payload) }),
   myOrders: () => request('/api/orders/mine'),
   sellerOrders: () => request('/api/seller/orders'),
   updateSellerOrderStatus: (id, status) => request(`/api/seller/orders/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
   createPayment: (payload) => request('/api/payments/create', { method: 'POST', body: JSON.stringify(payload) }),
+  createCheckout: (payload) => request('/api/payments/checkout', { method: 'POST', body: JSON.stringify(payload) }),
 };
 
 export const saveApiSession = ({ user, token }) => {
