@@ -15,7 +15,8 @@
     <script type="module" src="/src/seller-orders-panel.js"></script>
     <script type="module" src="/buyer-direct-contact.js"></script>
     <script type="module" src="/seller-billing-widget.js"></script>
-    <script src="/orders-widget.js" defer></script>
+    <script type="module" src="/orders-widget.js"></script>
+    <script type="module" src="/payment-enhancer.js"></script>
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
