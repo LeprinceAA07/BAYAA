@@ -1,0 +1,15 @@
+{
+  "currency": "MRU",
+  "commission": {
+    "free": 0.05,
+    "pro": 0.03,
+    "business": 0.02
+  },
+  "plans": {
+    "free": { "monthlyPrice": 0, "label": "Free" },
+    "pro": { "monthlyPrice": 500, "label": "Pro" },
+    "business": { "monthlyPrice": 1500, "label": "Business" }
+  },
+  "paymentForPlatformFees": "card",
+  "notes": "Commission is calculated on successful marketplace sales. Subscription payments require a separate card-capable payment provider."
+}
