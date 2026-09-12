@@ -140,13 +140,17 @@ const orderPaymentPatch = `app.post('/api/orders', auth, async (req, res) => {
 
 `;
 
+const sellerBillingPatch = await fs.readFile(new URL('./seller-billing.patch.mjs', import.meta.url), 'utf8');
+const staticMarker = 'const __filename = fileURLToPath(import.meta.url);';
+
 const patched = source
   .replace(productMarker, (source.includes("app.patch('/api/products/:id'") ? '' : productPatch) + productMarker)
   .replace(contactMigration, contactPatch + contactMigration)
   .replace(productContactQuery, productContactQueryPatched)
   .replace(webhookInsertMarker, webhookPatch + webhookInsertMarker)
   .replace(orderPaymentMarker, (source.includes('payment_transaction_id') ? '' : orderPaymentPatch) + orderPaymentMarker)
-  .replace(checkoutMarker, (source.includes("app.post('/api/payments/checkout'") ? '' : checkoutPatch) + checkoutMarker);
+  .replace(checkoutMarker, (source.includes("app.post('/api/payments/checkout'") ? '' : checkoutPatch) + checkoutMarker)
+  .replace(staticMarker, sellerBillingPatch + '\n' + staticMarker);
 const temp = new URL('../.bayaa-runtime-server.mjs', import.meta.url);
 await fs.writeFile(temp, patched, 'utf8');
 await import(`${temp.href}?v=${Date.now()}`);
