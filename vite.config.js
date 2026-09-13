@@ -9,6 +9,7 @@ export default defineConfig({
       input: {
         main: 'index.html',
         pricing: 'pricing/index.html',
+        welcome: 'welcome/index.html',
       },
     },
   },
