@@ -9,8 +9,6 @@ const emptyPlans = {
   Advanced: { month: '', year: '' },
 };
 
-/** @typedef {{name:'Starter'|'Pro'|'Advanced', description:string, features:string[], priceId:{month:string, year:string}}} Tier */
-
 const tierMeta = [
   { name: 'Starter', description: 'للبائعين الذين يبدأون البيع مع BAYAA.', features: ['إضافة المنتجات', 'لوحة بائع أساسية', 'تواصل مباشر مع المشترين'] },
   { name: 'Pro', description: 'للبائعين النشطين الذين يريدون تكلفة عمولة أقل.', features: ['كل مزايا Starter', 'عمولة مخفضة', 'أولوية في أدوات البائع'] },
@@ -25,8 +23,9 @@ function PricingPage({ config, countryCode, signedInEmail }) {
   const [loading, setLoading] = useState(true);
 
   const plans = config?.priceIds || emptyPlans;
-  const environment = String(config?.environment || '').trim().toLowerCase();
   const token = String(config?.clientToken || '').trim();
+  const configuredEnvironment = String(config?.environment || '').trim().toLowerCase();
+  const environment = token.startsWith('live_') ? 'production' : token.startsWith('test_') ? 'sandbox' : configuredEnvironment;
   const tiers = useMemo(() => tierMeta.map((tier) => ({ ...tier, priceId: plans[tier.name] || { month: '', year: '' } })), [plans]);
   const selected = useMemo(() => tiers.map((tier) => ({ ...tier, selectedPriceId: tier.priceId[billing] })), [billing, tiers]);
 
@@ -35,9 +34,9 @@ function PricingPage({ config, countryCode, signedInEmail }) {
     (async () => {
       try {
         if (!environment) throw new Error('Paddle environment is not configured on BAYAA.');
-        if (environment !== 'production') throw new Error('BAYAA pricing requires Paddle production environment.');
-        if (!token.startsWith('live_')) throw new Error('The BAYAA Paddle Live client token is missing or invalid.');
-        const instance = await initializePaddle({ token });
+        if (!['sandbox', 'production'].includes(environment)) throw new Error('Invalid Paddle environment.');
+        if (!token.startsWith('live_') && !token.startsWith('test_')) throw new Error('The BAYAA Paddle client token is missing or invalid.');
+        const instance = await initializePaddle({ environment, token });
         if (!instance) throw new Error('Paddle failed to initialize.');
         if (!cancelled) setPaddle(instance);
       } catch (e) {
@@ -115,7 +114,7 @@ function PricingPage({ config, countryCode, signedInEmail }) {
             <button type="button" className={billing === 'month' ? 'active' : ''} onClick={() => setBilling('month')}>شهري</button>
             <button type="button" className={billing === 'year' ? 'active' : ''} onClick={() => setBilling('year')}>سنوي</button>
           </div>
-          {countryCode && <div className="country-note">Country detected: {countryCode}</div>}
+          {countryCode && <div className="country-note">البلد المكتشف: {countryCode}</div>}
         </div>
         {error && <div className="error-banner" role="alert">{error}</div>}
         <section className="pricing-grid">
@@ -134,7 +133,7 @@ function PricingPage({ config, countryCode, signedInEmail }) {
             );
           })}
         </section>
-        <p className="sandbox-note">Paddle Live • الأسعار المعروضة هي totals التي يعيدها Paddle مباشرة.</p>
+        <p className="sandbox-note">Paddle • الأسعار المعروضة هي totals التي يعيدها Paddle مباشرة.</p>
       </div>
     </main>
   );
@@ -165,6 +164,6 @@ fetch('/api/pricing-context', { headers: token ? { Authorization: `Bearer ${toke
       signedInEmail={signedInEmail || config.email || undefined}
     />
   ))
-  .catch((error) => createRoot(document.getElementById('pricing-root')).render(
+  .catch(() => createRoot(document.getElementById('pricing-root')).render(
     <PricingPage config={null} countryCode={undefined} signedInEmail={signedInEmail} />
   ));
